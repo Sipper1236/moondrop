@@ -34,6 +34,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/package.ps1
+      - name: Check macOS setup Java detection
+        if: runner.os == 'macOS'
+        run: bash scripts/launchers/installmacos.command --check-java
       - name: Verify native engine and encrypted connection
         if: runner.os != 'Windows'
         run: |

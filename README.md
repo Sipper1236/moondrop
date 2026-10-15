@@ -32,6 +32,10 @@ Prefer an installer? Download [Eclipse Temurin 21](https://adoptium.net/temurin/
 
 #### macOS
 
+**Automatic setup:** download and extract Moondrop below, then double-click `installmacos.command`. It checks for Java 17+ with desktop support. If missing, it downloads the correct Temurin 21 installer for Intel or Apple Silicon, verifies its SHA-256 checksum and macOS package signature, and asks for administrator authorization to install Java separately. It then opens Moondrop. No Homebrew is needed.
+
+For manual installation instead:
+
 Download [Eclipse Temurin 21](https://adoptium.net/temurin/releases/?version=21), choose **macOS**, and install the **PKG**:
 
 - **Apple Silicon** (M1, M2, M3, and newer): choose **aarch64**.
@@ -103,12 +107,12 @@ You can also download **moondrop.jar** alone and run it with `java -jar moondrop
 java -jar .\moondrop.jar
 ```
 
-**macOS:** double-click `launch-macos.command`. If it needs executable permission, open Terminal, change into the extracted folder, and run:
+**macOS:** first double-click `installmacos.command` to check/install Java and open Moondrop. For later launches, use `launch-macos.command`. If the setup needs executable permission, open Terminal, change into the extracted folder, and run:
 
 ```sh
 cd "$HOME/Downloads/Moondrop"
-chmod +x launch-macos.command
-./launch-macos.command
+chmod +x installmacos.command
+./installmacos.command
 ```
 
 Replace the example folder path with wherever you extracted Moondrop. You can also run `java -jar moondrop.jar` from that folder.
