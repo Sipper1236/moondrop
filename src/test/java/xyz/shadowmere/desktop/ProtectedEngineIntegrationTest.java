@@ -14,6 +14,7 @@ import java.security.*;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Entirely local encrypted round trips, including verification of a private test certificate. */
@@ -23,6 +24,7 @@ class ProtectedEngineIntegrationTest {
     private static final String PASSWORD = "local-test-password";
     private static final char[] STORE_PASSWORD = "local-fixture-only".toCharArray();
     private Path core, certificate, key;
+    private final Map<Process, Thread> readers = new IdentityHashMap<>();
 
     @BeforeEach void createLocalCertificate() throws Exception {
         String executable = System.getProperty("engine.test.path", "");
@@ -38,7 +40,7 @@ class ProtectedEngineIntegrationTest {
                 "-ext", "SAN=dns:localhost,ip:127.0.0.1", "-validity", "2", "-storetype", "PKCS12",
                 "-keystore", store.toString(), "-storepass", new String(STORE_PASSWORD),
                 "-keypass", new String(STORE_PASSWORD), "-noprompt")
-                .redirectErrorStream(true).redirectOutput(directory.resolve("keytool.log").toFile()).start();
+                .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
         try {
             assertTrue(generation.waitFor(10, TimeUnit.SECONDS), "Local certificate generation timed out");
             assertEquals(0, generation.exitValue(), "Local certificate generation failed");
@@ -89,14 +91,26 @@ class ProtectedEngineIntegrationTest {
         JsonArray inbounds = new JsonArray(); inbounds.add(inbound); configuration.add("inbounds", inbounds);
         JsonObject direct = new JsonObject(); direct.addProperty("type", "direct");
         JsonArray outbounds = new JsonArray(); outbounds.add(direct); configuration.add("outbounds", outbounds);
-        Path config = directory.resolve(protocol + "-remote.json"), output = directory.resolve(protocol + "-remote.log");
+        Path config = directory.resolve(protocol + "-remote.json");
         Files.writeString(config, configuration.toString(), StandardCharsets.UTF_8);
         Process remote = new ProcessBuilder(core.toString(), "run", "-c", config.toString())
-                .redirectErrorStream(true).redirectOutput(output.toFile()).start();
+                .redirectErrorStream(true).start();
+        AtomicBoolean ready = new AtomicBoolean();
+        Thread reader = new Thread(() -> {
+            try (BufferedReader lines = remote.inputReader(StandardCharsets.UTF_8)) {
+                String line;
+                while ((line = lines.readLine()) != null) {
+                    if (line.contains("sing-box started")) ready.set(true);
+                }
+            } catch (IOException ignored) { /* Process shutdown closes the pipe. */ }
+        }, "local-proxy-fixture-output");
+        reader.setDaemon(true);
+        readers.put(remote, reader);
+        reader.start();
         try {
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
             while (System.nanoTime() < deadline && remote.isAlive()) {
-                if (Files.readString(output).contains("sing-box started")) return remote;
+                if (ready.get()) return remote;
                 Thread.sleep(25);
             }
             fail("Local " + protocol + " server failed to become ready");
@@ -127,6 +141,11 @@ class ProtectedEngineIntegrationTest {
             if (!process.waitFor(2, TimeUnit.SECONDS)) {
                 process.destroyForcibly(); assertTrue(process.waitFor(5, TimeUnit.SECONDS), "Fixture process did not exit");
             }
+        }
+        Thread reader = readers.remove(process);
+        if (reader != null) {
+            reader.join(1000);
+            assertFalse(reader.isAlive(), "Fixture output reader did not finish");
         }
     }
     @ParameterizedTest(name = "encrypted local {0} round trip")
