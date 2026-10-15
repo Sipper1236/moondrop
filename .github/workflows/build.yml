@@ -1,0 +1,56 @@
+name: Build desktop apps
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            label: macOS-Apple-Silicon
+          - os: macos-15-intel
+            label: macOS-Intel
+          - os: windows-2022
+            label: Windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build macOS disk image
+        if: runner.os == 'macOS'
+        run: bash scripts/package.sh
+      - name: Build Windows portable app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/package.ps1
+      - name: Verify native macOS engine and encrypted connection
+        if: runner.os == 'macOS'
+        run: |
+          java "-Dshadowmere.dataDir=target/native-test-data" -jar target/moondrop.jar --install-engine
+          mvn -B -Dengine.test.path="$PWD/target/native-test-data/engine/sing-box" test
+      - name: Verify native Windows engine and encrypted connection
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          java "-Dshadowmere.dataDir=target/native-test-data" -jar target/moondrop.jar --install-engine
+          if ($LASTEXITCODE -ne 0) { throw 'Engine installation failed' }
+          $engine = (Resolve-Path target/native-test-data/engine/sing-box.exe).Path
+          mvn -B "-Dengine.test.path=$engine" test
+          if ($LASTEXITCODE -ne 0) { throw 'Encrypted connection test failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Moondrop-${{ matrix.label }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            target/moondrop.jar
+          if-no-files-found: error
