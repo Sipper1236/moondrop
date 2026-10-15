@@ -66,4 +66,4 @@ fi
 if [[ "${1:-}" == --check-java ]]; then printf 'Java check passed.\n'; exit 0; fi
 [[ -f "$script_dir/moondrop.jar" ]] || fail 'moondrop.jar is missing. Extract the complete Moondrop.zip and keep its files together.'
 printf '\nStarting Moondrop…\n'
-"$java_program" -jar "$script_dir/moondrop.jar" || fail 'Moondrop could not start. See INSTALL.md for troubleshooting.'
+"$java_program" -jar "$script_dir/moondrop.jar" "$@" || fail 'Moondrop could not start. See INSTALL.md for troubleshooting.'

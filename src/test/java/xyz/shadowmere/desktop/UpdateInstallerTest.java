@@ -26,6 +26,15 @@ class UpdateInstallerTest {
         return jar;
     }
     private String hash(Path file) throws Exception {return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)));}
+    private String awaitContent(Path file,String expected,long deadline) throws Exception {
+        String content="<not written>";
+        while(System.nanoTime()<deadline) {
+            try {content=Files.readString(file);}catch(NoSuchFileException notYetCreated) { }
+            if(expected.equals(content))return content;
+            Thread.sleep(50);
+        }
+        return content;
+    }
     private UpdateInstaller.Plan plan(Path old,Path staged,String version) throws Exception {
         return new UpdateInstaller.Plan(1,Instant.EPOCH.toString(),old,staged,directory.resolve("moondrop.jar.previous"),hash(staged),version,
                 Path.of(System.getProperty("java.home"),"bin",System.getProperty("os.name").startsWith("Windows")?"java.exe":"java"),directory);
@@ -83,9 +92,8 @@ class UpdateInstallerTest {
         p=new UpdateInstaller.Plan(ProcessHandle.current().pid(),Instant.EPOCH.toString(),p.installed(),p.staged(),p.backup(),p.sha256(),p.version(),p.java(),p.data());
         Path file=updates.resolve("install.properties");UpdateInstaller.writePlan(file,p);Process installer=UpdateInstaller.start(file);
         long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(15);
-        while(!Files.exists(directory.resolve("restarted"))&&System.nanoTime()<deadline)Thread.sleep(100);
-        assertTrue(Files.exists(directory.resolve("restarted")),()->{try{return Files.readString(updates.resolve("install.log"));}catch(Exception e){return e.toString();}});
-        assertEquals("0.3.1",Files.readString(directory.resolve("restarted")));
+        assertEquals("0.3.1",awaitContent(directory.resolve("restarted"),"0.3.1",deadline),
+                ()->{try{return Files.readString(updates.resolve("install.log"));}catch(Exception e){return e.toString();}});
         while(Files.exists(file)&&System.nanoTime()<deadline)Thread.sleep(100);
         assertFalse(Files.exists(file));assertTrue(Files.isRegularFile(p.backup()));
         assertTrue(installer.waitFor(5,TimeUnit.SECONDS));assertEquals(0,installer.exitValue());
@@ -97,6 +105,7 @@ class UpdateInstallerTest {
         rollback=new UpdateInstaller.Plan(ProcessHandle.current().pid(),Instant.EPOCH.toString(),rollback.installed(),rollback.staged(),rollback.backup(),rollback.sha256(),rollback.version(),rollback.java(),rollback.data());
         Path retry=updates.resolve("rollback.properties");UpdateInstaller.writePlan(retry,rollback);Process failed=UpdateInstaller.start(retry);
         assertTrue(failed.waitFor(15,TimeUnit.SECONDS));assertEquals(1,failed.exitValue());
-        assertArrayEquals(working,Files.readAllBytes(old));assertEquals("0.3.1",Files.readString(directory.resolve("restarted")));
+        assertArrayEquals(working,Files.readAllBytes(old));
+        assertEquals("0.3.1",awaitContent(directory.resolve("restarted"),"0.3.1",System.nanoTime()+TimeUnit.SECONDS.toNanos(15)));
     }
 }
