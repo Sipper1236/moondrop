@@ -85,9 +85,9 @@ java -version
 
 ## 2. Download Moondrop
 
-1. Open the [Moondrop v0.4.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.4.0). This is a prerelease.
+1. Open the [Moondrop v0.4.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.4.1). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
-3. Extract the entire ZIP into a folder you want to keep. Run Moondrop from the extracted folder, not from inside the ZIP.
+3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 
 You can also download **moondrop.jar** alone and run it with `java -jar moondrop.jar`.
 
@@ -109,14 +109,18 @@ chmod +x installmacos.command
 
 Replace the example folder path with wherever you extracted Moondrop. You can also run `java -jar moondrop.jar` from that folder.
 
-**Linux:** open a terminal in the extracted folder and run:
+**Linux:** open a terminal in the extracted folder and install the app-menu shortcut:
 
 ```sh
-chmod +x launch-linux.sh
-./launch-linux.sh
+chmod +x install-linux.sh
+./install-linux.sh
 ```
 
-Or run `java -jar moondrop.jar`.
+Then open **Moondrop** from your application menu. No `sudo` is needed, and Java stays a separate installation. The installer copies the app to `${XDG_DATA_HOME:-$HOME/.local/share}/moondrop`, creates `~/.local/bin/moondrop`, and installs `moondrop.desktop` and the SVG icon under your user data directory. The stable app folder is writable by your account so automatic updates can replace the JAR.
+
+The repository and ZIP also include `moondrop.desktop` and `moondrop.svg`. The desktop file is a template using `Exec=moondrop` and `Icon=moondrop`; the installer writes a ready-to-use desktop entry with absolute paths.
+
+For a portable launch without installing a shortcut, run `chmod +x launch-linux.sh` followed by `./launch-linux.sh`, or use `java -jar moondrop.jar` from the extracted folder.
 
 ## 4. Connect
 
@@ -156,7 +160,14 @@ If an update cannot install or launch, the helper keeps/restores the previous ap
 
 ## Remove Moondrop
 
-Disconnect and close the app, then delete the extracted Moondrop folder. Java is a separate installation and stays installed for other applications.
+Disconnect and close the app, then delete the extracted Moondrop folder. For a Linux app-menu installation, also remove these files and folders (replace the data directory if you set `XDG_DATA_HOME`):
+
+- `~/.local/share/moondrop`
+- `~/.local/share/applications/moondrop.desktop`
+- `~/.local/share/icons/hicolor/scalable/apps/moondrop.svg`
+- `~/.local/bin/moondrop`
+
+Java is a separate installation and stays installed for other applications.
 
 If you also want to remove Moondrop's downloaded engine and saved state, delete its data folder only after disconnecting successfully:
 

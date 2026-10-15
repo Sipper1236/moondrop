@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Moondrop
+GenericName=Shadowsocks Client
+Comment=by rayyan — connect to encrypted Shadowsocks proxies
+Exec=moondrop
+Icon=moondrop
+Terminal=false
+Categories=Network;
+Keywords=Shadowsocks;Proxy;Network;
+StartupNotify=false
+StartupWMClass=xyz-shadowmere-desktop-Main
