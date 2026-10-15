@@ -18,7 +18,7 @@ public final class ShadowmereApi {
         for (int page = 1; page <= total; page++) {
             HttpRequest request = HttpRequest.newBuilder(URI.create(ENDPOINT + "&page=" + page))
                     .timeout(Duration.ofSeconds(20)).header("Accept", "application/json")
-                    .header("User-Agent", "Moondrop/0.3 (+https://github.com/shadowmere-xyz/shadowmere)").GET().build();
+                    .header("User-Agent", "Moondrop/0.4 (+https://github.com/shadowmere-xyz/shadowmere)").GET().build();
             var response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) throw new IOException("Shadowmere returned HTTP " + response.statusCode() + ". Try refreshing later.");
             JsonElement root = JsonParser.parseString(response.body());
@@ -37,7 +37,8 @@ public final class ShadowmereApi {
                     if (row.has("is_active") && !row.get("is_active").getAsBoolean()) continue;
                     Server server = Server.parse(str(row, "id"), str(row, "url"), str(row, "location_country_code"),
                             str(row, "location"), str(row, "last_checked"), true);
-                    servers.putIfAbsent(server.host() + ":" + server.port() + ":" + server.method(), server);
+                    if (!Server.supportsEncryptedMethod(server.method())) continue;
+                    servers.putIfAbsent(PerformanceCache.serverKey(server), server);
                 } catch (IllegalArgumentException ignored) { /* Unsupported entries do not hide the usable list. */ }
             }
             if (page < total) Thread.sleep(400); // API allows three requests per second.

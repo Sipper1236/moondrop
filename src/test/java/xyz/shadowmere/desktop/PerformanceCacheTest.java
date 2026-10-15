@@ -28,9 +28,17 @@ class PerformanceCacheTest {
         assertEquals(ServerPerformance.State.FAILED, cache.load(List.of(server("one"))).get(key).state());
         assertFalse(new ServerPerformance(ServerPerformance.State.VERIFIED, 10, Instant.now().minusSeconds(1801)).fresh());
     }
+    @Test void retainsMeasurementsForLargeAdditionalFeed() throws Exception {
+        List<Server> servers=new ArrayList<>();Map<String,ServerPerformance> values=new HashMap<>();
+        for(int i=0;i<13_500;i++) {
+            Server server=server("key-"+i);servers.add(server);values.put(PerformanceCache.serverKey(server),ServerPerformance.verified(100+i));
+        }
+        var cache=new PerformanceCache(directory);cache.save(values);
+        assertEquals(values,new PerformanceCache(directory).load(servers));
+    }
     @Test void malformedAndOversizedCachesAreIgnored() throws Exception {
         var file = directory.resolve("server-performance.json"); var cache = new PerformanceCache(directory);
         Files.writeString(file, "{invalid"); assertTrue(cache.load(List.of(server("one"))).isEmpty());
-        Files.writeString(file, " ".repeat(1_048_577)); assertTrue(cache.load(List.of(server("one"))).isEmpty());
+        Files.writeString(file, " ".repeat(8_388_609)); assertTrue(cache.load(List.of(server("one"))).isEmpty());
     }
 }

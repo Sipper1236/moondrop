@@ -10,3 +10,7 @@
 The shaded JAR includes dependency license/notice files under META-INF. Moondrop is an independent client and is not endorsed by the above projects.
 
 - **flag-icons**, lipis and contributors — MIT, https://github.com/lipis/flag-icons, revision `086f7e97d657358203916dbe84f61c2bccaa81eb`. Bundled 4:3 SVG flags; license in `src/main/resources/flags/LICENSE.txt`.
+
+- **GetFreeProxy / gfpcom free-proxy-list** — MIT, https://github.com/gfpcom/free-proxy-list. Public Shadowsocks subscription fetched at runtime; no upstream code or server list is bundled.
+- **V2rayCollector**, MhdiTaheri — MIT, https://github.com/MhdiTaheri/V2rayCollector. Public Shadowsocks subscription fetched at runtime; no upstream code or server list is bundled.
+- **morpheusadam/v2ray-config** — public Shadowsocks bundle fetched at runtime from https://github.com/morpheusadam/v2ray-config. No upstream code or server list is bundled.

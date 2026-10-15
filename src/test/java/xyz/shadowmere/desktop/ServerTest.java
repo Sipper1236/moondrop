@@ -24,7 +24,13 @@ class ServerTest {
     @Test void rejectsMalformedPortsAndPlugins() {
         assertThrows(IllegalArgumentException.class,()->parse("ss://"+b64("aes-256-gcm:key")+"@host.test:99999"));
         assertThrows(IllegalArgumentException.class,()->parse("ss://"+b64("aes-256-gcm:key")+"@host.test:443?plugin=v2ray-plugin"));
+        assertThrows(IllegalArgumentException.class,()->parse("ss://"+b64("aes-256-gcm:key")+"@host.test:443?%70lugin=obfs-local"));
+        assertThrows(IllegalArgumentException.class,()->parse("ss://"+b64("aes-256-gcm:key")+"@host.test:443?PLUGIN=obfs-local"));
         assertThrows(IllegalArgumentException.class,()->parse("https://host.test"));
+    }
+    @Test void rejectsUnencryptedAndUnsupportedMethodsFromAnySource() {
+        for(String method:new String[]{"none","dummy","chacha20","unknown"})
+            assertFalse(Server.supportsEncryptedMethod(method));
     }
     @Test void mapsDesktopArchitectureNames() {
         assertEquals("darwin-arm64",CoreInstaller.platform("Mac OS X","aarch64"));

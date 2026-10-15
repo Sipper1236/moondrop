@@ -20,20 +20,25 @@ public final class QuickConnect {
     public Result find(List<Server> servers, Path binary, Path directory, Consumer<String> progress,
                        Consumer<ServerSpeedTester.Update> measurements) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(16);
-        List<Future<Candidate>> reachable = new ArrayList<>();
         try {
-            progress.accept("Checking " + servers.size() + " server addresses…");
-            for (Server server : servers) reachable.add(pool.submit(() -> {
-                long start = System.nanoTime();
-                try (Socket socket = new Socket()) {
-                    socket.connect(new InetSocketAddress(server.host(),server.port()), 1200);
-                    return new Candidate(server, System.nanoTime() - start);
-                } catch (IOException e) {if(!Thread.currentThread().isInterrupted())measurements.accept(new ServerSpeedTester.Update(server,ServerPerformance.failed())); return null; }
-            }));
-            List<Candidate> candidates = new ArrayList<>();
-            for (Future<Candidate> future : reachable) { Candidate c = future.get(); if (c != null) candidates.add(c); }
-            List<Server> shortlist = candidates.stream().sorted(Comparator.comparingLong(Candidate::nanos))
-                    .limit(20).map(Candidate::server).toList();
+            List<Server> selected = selectCandidates(servers, 256, new Random());
+            progress.accept("Checking " + selected.size() + " of " + servers.size() + " server addresses…");
+            List<Server> shortlist;
+            Set<Socket> sockets = ConcurrentHashMap.newKeySet();
+            try {
+                shortlist = discover(selected, TimeUnit.SECONDS.toNanos(8), server -> {
+                    long start = System.nanoTime();
+                    Socket socket = new Socket();
+                    sockets.add(socket);
+                    try (socket) {
+                        if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
+                        socket.connect(new InetSocketAddress(server.host(), server.port()), 1200);
+                        return System.nanoTime() - start;
+                    } finally { sockets.remove(socket); }
+                }, measurements);
+            } finally {
+                for (Socket socket : sockets) try { socket.close(); } catch (IOException ignored) { }
+            }
             if (shortlist.isEmpty()) throw new IOException("No servers responded. Refresh the list or check your internet connection.");
             progress.accept("Testing HTTPS through " + shortlist.size() + " responsive servers…");
             // Each candidate has an isolated loopback listener and routing rule in one temporary core.
@@ -69,4 +74,77 @@ public final class QuickConnect {
             }
         } finally { pool.shutdownNow(); }
     }
+    @FunctionalInterface
+    interface TcpProbe { long probe(Server server) throws Exception; }
+
+    /** Balance sources first, then countries, so a large feed cannot bury a smaller one. */
+    static List<Server> selectCandidates(List<Server> servers, int limit, Random random) {
+        if (servers.size() <= limit) return List.copyOf(servers);
+        Map<String, Map<String, List<Server>>> sources = new LinkedHashMap<>();
+        for (Server server : servers) {
+            String source = server.sourceName();
+            sources.computeIfAbsent(source, ignored -> new LinkedHashMap<>())
+                    .computeIfAbsent(server.country(), ignored -> new ArrayList<>()).add(server);
+        }
+        List<Deque<Deque<Server>>> groups = new ArrayList<>();
+        for (var countries : sources.values()) {
+            List<Deque<Server>> buckets = new ArrayList<>();
+            for (var country : countries.values()) {
+                Collections.shuffle(country, random);
+                buckets.add(new ArrayDeque<>(country));
+            }
+            Collections.shuffle(buckets, random);
+            groups.add(new ArrayDeque<>(buckets));
+        }
+        Collections.shuffle(groups, random);
+        List<Server> selected = new ArrayList<>();
+        while (selected.size() < limit && groups.stream().anyMatch(g -> !g.isEmpty())) {
+            for (var countries : groups) {
+                if (countries.isEmpty() || selected.size() == limit) continue;
+                var bucket = countries.removeFirst();
+                selected.add(bucket.removeFirst());
+                if (!bucket.isEmpty()) countries.addLast(bucket);
+            }
+        }
+        return selected;
+    }
+
+    /** Only completed probes publish failures; queued or cancelled work stays unmeasured. */
+    static List<Server> discover(List<Server> servers, long budgetNanos, TcpProbe probe,
+                                 Consumer<ServerSpeedTester.Update> measurements) throws Exception {
+        ExecutorService discovery = Executors.newFixedThreadPool(16);
+        List<Future<Candidate>> pending = new ArrayList<>();
+        CompletionService<Candidate> completed = new ExecutorCompletionService<>(discovery);
+        long deadline = System.nanoTime() + budgetNanos;
+        try {
+            for (Server server : servers) pending.add(completed.submit(() -> {
+                try { return new Candidate(server, probe.probe(server)); }
+                catch (IOException failure) { return new Candidate(server, -1); }
+            }));
+            List<Candidate> responsive = new ArrayList<>();
+            for (int i = 0; i < servers.size(); i++) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) break;
+                Future<Candidate> future = completed.poll(remaining, TimeUnit.NANOSECONDS);
+                if (future == null) break;
+                Candidate candidate = future.get();
+                if (candidate.nanos() >= 0) responsive.add(candidate);
+                else measurements.accept(new ServerSpeedTester.Update(candidate.server(), ServerPerformance.failed()));
+            }
+            // Keep each source represented in HTTPS checks as well as the initial sample.
+            // A large feed of fast TCP responders must not crowd out working encrypted paths.
+            Map<String,Deque<Candidate>> sources=new LinkedHashMap<>();
+            responsive.stream().sorted(Comparator.comparingLong(Candidate::nanos)).forEach(candidate ->
+                    sources.computeIfAbsent(candidate.server().sourceName(),ignored -> new ArrayDeque<>()).addLast(candidate));
+            List<Server> shortlist=new ArrayList<>();
+            while(shortlist.size()<20&&sources.values().stream().anyMatch(group -> !group.isEmpty())) {
+                for(var group:sources.values())if(!group.isEmpty()&&shortlist.size()<20)shortlist.add(group.removeFirst().server());
+            }
+            return List.copyOf(shortlist);
+        } finally {
+            for (Future<Candidate> future : pending) future.cancel(true);
+            discovery.shutdownNow();
+        }
+    }
+
 }

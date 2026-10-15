@@ -29,7 +29,12 @@ public final class AppWindow extends JFrame {
     private static final Color BG = new Color(18,25,33), PANEL = new Color(26,35,45),
             TEXT = new Color(237,240,231), MUTED = new Color(148,164,174), MINT = new Color(157,229,193);
     private final Actions actions;
-    private final DefaultListModel<Server> model = new DefaultListModel<>();
+    private final ServerListModel model = new ServerListModel();
+    private static final ServerPerformance UNTESTED = ServerPerformance.untested();
+    private final Map<Server,String> searchText = new HashMap<>();
+    private final Map<Server,String> countryNames = new HashMap<>();
+    private final Map<String,String> countryCodes = new HashMap<>();
+    private boolean updatingFilters;
     private final JList<Server> servers = new JList<>(model) {
         @Override protected void paintComponent(Graphics graphics) {
             super.paintComponent(graphics);
@@ -86,10 +91,10 @@ public final class AppWindow extends JFrame {
         country.setRenderer((list,value,index,selected,focus) -> {
             JLabel item=(JLabel)new DefaultListCellRenderer().getListCellRendererComponent(list,value,index,selected,focus);
             item.setBorder(new EmptyBorder(5,8,5,8));item.setIconTextGap(9);
-            all.stream().filter(s -> s.countryName().equals(value)).findFirst().ifPresent(s -> item.setIcon(FlagIcons.get(s.country())));
+            String code=countryCodes.get(value);if(code!=null)item.setIcon(FlagIcons.get(code));
             return item;
         });filters.add(country); filters.add(Box.createVerticalStrut(8)); sort.setMaximumSize(new Dimension(Integer.MAX_VALUE,36)); filters.add(sort); sort.addActionListener(e -> filter()); browser.add(filters,BorderLayout.NORTH);
-        servers.setBackground(PANEL); servers.setForeground(TEXT); servers.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); servers.setFixedCellHeight(69); servers.setCellRenderer(new ServerRenderer());
+        servers.setBackground(PANEL); servers.setForeground(TEXT); servers.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); servers.setFixedCellHeight(69); servers.setFixedCellWidth(280); servers.setCellRenderer(new ServerRenderer());
         JScrollPane scroll = new JScrollPane(servers); scroll.setBorder(BorderFactory.createEmptyBorder()); scroll.getViewport().setBackground(PANEL); browser.add(scroll,BorderLayout.CENTER);
         JPanel listFooter = vertical(); JPanel counts = new JPanel(new BorderLayout(8,0)); counts.setOpaque(false); counts.add(count,BorderLayout.CENTER); retest.setMargin(new Insets(5,8,5,8)); retest.addActionListener(e -> actions.retestSpeeds()); counts.add(retest,BorderLayout.EAST); counts.setAlignmentX(Component.LEFT_ALIGNMENT); listFooter.add(counts); listFooter.add(Box.createVerticalStrut(6)); listFooter.add(speedProgress); speedProgress.setToolTipText("Verified HTTPS round-trip latency in milliseconds; lower is better. Successful results stay cached for 30 minutes; failures for 5 minutes."); browser.add(listFooter,BorderLayout.SOUTH);
         JPanel right = new JPanel(new BorderLayout(0,18)); right.setOpaque(false); body.add(right);
@@ -105,13 +110,27 @@ public final class AppWindow extends JFrame {
         log.setEditable(false); log.setLineWrap(true); log.setWrapStyleWord(true); log.setBackground(PANEL); log.setForeground(MUTED); log.setFont(new Font(Font.MONOSPACED,Font.PLAIN,11)); JScrollPane logs = new JScrollPane(log); logs.setBorder(BorderFactory.createEmptyBorder()); logs.setPreferredSize(new Dimension(300,120)); engine.add(logs,BorderLayout.CENTER);
         JPanel footer = new JPanel(new BorderLayout()); footer.setOpaque(false); footer.add(label("Community servers · Availability and privacy vary by operator",MUTED,11),BorderLayout.WEST); JButton folder = new JButton("App files"); folder.addActionListener(e -> actions.openDataFolder()); footer.add(folder,BorderLayout.EAST); root.add(footer,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();}public void removeUpdate(DocumentEvent e){filter();}public void changedUpdate(DocumentEvent e){filter();}});
-        country.addActionListener(e -> filter()); servers.addListSelectionListener(e -> {if(connected||rebuilding)return; Server s=servers.getSelectedValue(); selectedName.setText(s==null?"Choose a server":s.countryName());selectedName.setIcon(s==null?null:FlagIcons.get(s.country()));selectedName.setIconTextGap(10); selectedDetail.setText(s==null?"Select a location from the list.":s.displayName()); updateControls();}); updateControls();
+        country.addActionListener(e -> {if(!updatingFilters)filter();}); servers.addListSelectionListener(e -> {if(connected||rebuilding)return; Server s=servers.getSelectedValue(); selectedName.setText(s==null?"Choose a server":s.countryName());selectedName.setIcon(s==null?null:FlagIcons.get(s.country()));selectedName.setIconTextGap(10); selectedDetail.setText(s==null?"Select a location from the list.":s.displayName()); updateControls();}); updateControls();
     }
     public void setServers(List<Server> list) {
-        all=List.copyOf(list); Object previous=country.getSelectedItem(); country.removeAllItems(); country.addItem("All locations"); all.stream().map(Server::countryName).distinct().sorted().forEach(country::addItem); country.setSelectedItem(previous); if(country.getSelectedIndex()<0)country.setSelectedIndex(0); filter();
+        all=List.copyOf(list); searchText.clear(); countryNames.clear(); countryCodes.clear();
+        for(Server server:all){
+            String name=server.countryName(); countryNames.put(server,name);
+            searchText.put(server,(name+" "+server.displayName()+" "+server.host()+" "+source(server)).toLowerCase(Locale.ROOT));
+            countryCodes.putIfAbsent(name,server.country());
+        }
+        Object previous=country.getSelectedItem();
+        java.util.ArrayList<String> locations=new java.util.ArrayList<>();locations.add("All locations");locations.addAll(countryCodes.keySet().stream().sorted().toList());
+        updatingFilters=true;
+        try {
+            country.setModel(new DefaultComboBoxModel<>(locations.toArray(String[]::new)));
+            country.setSelectedItem(locations.contains(previous)?previous:"All locations");
+        } finally {updatingFilters=false;}
+        filter();
     }
+    private static String source(Server server){return server.sourceName();}
     private ServerPerformance performanceFor(Server server) {
-        return performance.getOrDefault(server, ServerPerformance.untested());
+        return performance.getOrDefault(server, UNTESTED);
     }
     private int performanceRank(Server server) {
         return switch(performanceFor(server).state()) {
@@ -126,19 +145,19 @@ public final class AppWindow extends JFrame {
         JViewport viewport=(JViewport)servers.getParent(); Point view=viewport.getViewPosition();
         String q=search.getText().strip().toLowerCase(Locale.ROOT); Object c=country.getSelectedItem();
         Comparator<Server> ordering = sort.getSelectedIndex()==0
-                ? Comparator.comparingInt(this::performanceRank).thenComparingLong(s -> performanceFor(s).successful()?performanceFor(s).millis():Long.MAX_VALUE).thenComparing(Server::countryName)
-                : Comparator.comparing(Server::countryName);
-        List<Server> visible=all.stream().filter(s -> (c==null||c.equals("All locations")||c.equals(s.countryName())) && (s.countryName()+" "+s.displayName()+" "+s.host()).toLowerCase(Locale.ROOT).contains(q)).sorted(ordering).toList();
+                ? Comparator.comparingInt(this::performanceRank).thenComparingLong(s -> performanceFor(s).successful()?performanceFor(s).millis():Long.MAX_VALUE).thenComparing(countryNames::get)
+                : Comparator.comparing(countryNames::get);
+        List<Server> visible=all.stream().filter(s -> (c==null||c.equals("All locations")||c.equals(countryNames.get(s))) && searchText.get(s).contains(q)).sorted(ordering).toList();
         rebuilding=true;
         try {
-            model.clear(); visible.forEach(model::addElement);
+            model.replace(visible);
             if(previous!=null)servers.setSelectedValue(previous,false);
             if(servers.getSelectedIndex()<0&&!model.isEmpty())servers.setSelectedIndex(0);
             viewport.setViewPosition(new Point(view.x,Math.max(0,Math.min(view.y,model.size()*servers.getFixedCellHeight()-viewport.getHeight()))));
         } finally { rebuilding=false; }
         Server selected=servers.getSelectedValue();
         if(!connected){selectedName.setText(selected==null?"Choose a server":selected.countryName()); selectedName.setIcon(selected==null?null:FlagIcons.get(selected.country())); selectedName.setIconTextGap(10); selectedDetail.setText(selected==null?"Select a location from the list.":selected.displayName());}
-        count.setText(model.size()+" servers"); updateControls();
+        count.setText(model.size()+" servers"); servers.repaint(); updateControls();
     }
     public void setPerformance(Server server,ServerPerformance value){performance.put(server,value);if(!performanceRefresh.isRunning())performanceRefresh.start();}
     public void clearPerformance(){performance.clear();performanceRefresh.stop();filter();}
@@ -188,11 +207,27 @@ public final class AppWindow extends JFrame {
     private final class ServerRenderer extends JPanel implements ListCellRenderer<Server>{
         private final JLabel title=label("",TEXT,14), sub=label("",MUTED,11), icon=label("",MINT,12), latency=label("",MINT,12);
         ServerRenderer(){setLayout(new BorderLayout(12,0));setBorder(new EmptyBorder(10,12,10,12)); JPanel t=vertical();t.add(title);t.add(Box.createVerticalStrut(5));t.add(sub);add(icon,BorderLayout.WEST);add(t,BorderLayout.CENTER);latency.setHorizontalAlignment(SwingConstants.RIGHT);add(latency,BorderLayout.EAST);}
-        public Component getListCellRendererComponent(JList<? extends Server> list,Server s,int index,boolean selected,boolean focus){setBackground(selected?new Color(44,66,65):PANEL);icon.setText(null);icon.setIcon(FlagIcons.get(s.country()));title.setText(s.countryName());sub.setText(s.displayName());
+        public Component getListCellRendererComponent(JList<? extends Server> list,Server s,int index,boolean selected,boolean focus){setBackground(selected?new Color(44,66,65):PANEL);icon.setText(null);icon.setIcon(FlagIcons.get(s.country()));title.setText(s.countryName());sub.setText(source(s)+" · "+s.displayName());
             ServerPerformance result=performanceFor(s); latency.setText(result.label());
             latency.setForeground(result.successful()?(result.fresh()?MINT:MUTED):result.state()==ServerPerformance.State.FAILED?new Color(220,143,136):MUTED);
             String tooltip=result.state()==ServerPerformance.State.UNTESTED?"Latency has not been tested yet":result.state()==ServerPerformance.State.TESTING?"Checking verified HTTPS round-trip latency…": "Latency checked "+DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(result.checkedAt())+(result.fresh()?" · cached":" · expired")+". Lower milliseconds is better.";
             setToolTipText(tooltip);return this;}
+    }
+    /** Replaces a full feed in a bounded number of events, rather than one event per row. */
+    static final class ServerListModel extends AbstractListModel<Server> {
+        private List<Server> rows=List.of();
+        public int getSize(){return rows.size();}
+        public Server getElementAt(int index){return rows.get(index);}
+        int size(){return rows.size();}
+        boolean isEmpty(){return rows.isEmpty();}
+        void replace(List<Server> next){
+            if(rows.equals(next))return;
+            int oldSize=rows.size();rows=List.copyOf(next);
+            int common=Math.min(oldSize,rows.size());
+            if(common>0)fireContentsChanged(this,0,common-1);
+            if(rows.size()>oldSize)fireIntervalAdded(this,oldSize,rows.size()-1);
+            else if(rows.size()<oldSize)fireIntervalRemoved(this,rows.size(),oldSize-1);
+        }
     }
     private static final class Mark extends JComponent {
         Mark(){setPreferredSize(new Dimension(40,44));}

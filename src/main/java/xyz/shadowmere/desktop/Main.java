@@ -53,7 +53,7 @@ public final class Main implements AppWindow.Actions {
                 if(commandLock==null)throw new IOException("Moondrop is already open. Close it before running a command-line check.");
                 if(!core.ready()) core.install(System.out::println);
                 if(args[0].equals("--smoke-test")) {
-                    List<Server> list=new ShadowmereApi().fetch();
+                    List<Server> list=new ServerCatalog().fetch().servers();
                     QuickConnect.Result best=new QuickConnect().find(list,core.binary(),directory,System.out::println);
                     try(ProxyEngine proxy=new ProxyEngine(core.binary(),directory)) {
                         ProxyEngine.ensurePortFree(ProxyEngine.PORT);
@@ -132,8 +132,9 @@ public final class Main implements AppWindow.Actions {
     @Override public void refresh() {submit("Refreshing servers",this::loadServers);}
     private void loadServers() throws Exception {
         cancelSpeedTests();
-        if(!connected)ui(() -> window.setConnection("Loading servers","Getting active locations from Shadowmere…",false));
-        List<Server> fresh=new ShadowmereApi().fetch(); servers=fresh;
+        if(!connected)ui(() -> window.setConnection("Loading servers","Getting encrypted Shadowsocks locations from four sources…",false));
+        ServerCatalog.Result catalog=new ServerCatalog().fetch();
+        List<Server> fresh=catalog.servers(); servers=fresh;
         performance.replaceAll(Map.of());
         try {performance.replaceAll(performanceCache.load(fresh));}catch(IOException e){log("Could not read saved latency results. Servers will be checked again.");}
         Map<String,ServerPerformance> saved=performance.snapshot();
@@ -142,7 +143,9 @@ public final class Main implements AppWindow.Actions {
             for(Server server:fresh) {ServerPerformance p=saved.get(PerformanceCache.serverKey(server));if(p!=null)window.setPerformance(server,p);}
             if(!connected)window.setConnection("Disconnected","Choose Quick Connect or select a location.",false);
         });
-        log("Updated · "+fresh.size()+" active Shadowsocks servers");
+        log("Updated · "+fresh.size()+" Shadowsocks servers");
+        catalog.counts().forEach((source,count) -> log(source+" · "+count+" unique servers"));
+        catalog.warnings().forEach(this::log);
         startSpeedTests(false);
     }
 

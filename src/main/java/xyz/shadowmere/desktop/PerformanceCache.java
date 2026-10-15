@@ -10,7 +10,7 @@ import java.util.*;
 
 /** Small credential-free cache, keyed by a digest of connection identity. */
 public final class PerformanceCache {
-    private static final int MAX_BYTES = 1_048_576, MAX_ENTRIES = 5000;
+    private static final int MAX_BYTES = 8_388_608, MAX_ENTRIES = 25_000;
     private final Path file;
     public PerformanceCache(Path dataDir) { file = dataDir.resolve("server-performance.json"); }
     public static String serverKey(Server server) {
