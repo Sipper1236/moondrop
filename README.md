@@ -89,7 +89,7 @@ java -version
 
 ### 2. Download Moondrop
 
-1. Open the [Moondrop v0.1.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.1.0). This is a prerelease.
+1. Open the [Moondrop v0.2.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.2.0). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP into a folder you want to keep. Run Moondrop from the extracted folder, not from inside the ZIP.
 
@@ -124,7 +124,9 @@ Or run `java -jar moondrop.jar`.
 
 ### 4. Connect
 
-Click **Quick Connect**. Moondrop tests servers and automatically connects to the fastest one that successfully completes its HTTPS checks. This is the fastest server tested, not a promise about every server or download speed.
+Each server shows verified HTTPS latency in milliseconds; lower is faster. Tests run in the background and the list defaults to **Fastest first**. Successful results are saved for **30 minutes**, and failed checks for **5 minutes**, so reopening or refreshing Moondrop reuses fresh measurements. Hover a result to see when it was measured. Use **Retest speeds** to check again, or **Stop testing** to cancel.
+
+Click **Quick Connect**. Moondrop tests servers and automatically connects to the fastest one that successfully completes its HTTPS checks. It uses a fresh cached ranking when available and verifies the selected connection again. This is the fastest server tested, not a promise about every server or download speed.
 
 On the first connection, Moondrop downloads its separate **sing-box networking engine** from the official upstream release and verifies its checksum. This is not a Java installation. The first launch and engine download need working internet access.
 
@@ -168,7 +170,9 @@ This is an application proxy, not a VPN or TUN tunnel. Apps that ignore system p
 
 ## Quick Connect
 
-Checks TCP responsiveness across the loaded list with bounded parallelism, then measures an actual HTTPS request through up to 20 of the most responsive Shadowsocks endpoints. It picks the lowest measured HTTPS time among successful tests and verifies the selected connection again before marking it connected. This means **fastest tested**, not a guaranteed globally fastest server or a bandwidth benchmark. Measurements use Google's HTTPS connectivity endpoint; its availability can affect results. Cancel stops the search and closes its temporary engine. A refresh discovers new servers; there is no background subscription polling or silent server switching.
+Each server row shows measured HTTPS latency, with **Fastest first** sorting. Background testing keeps the list usable. Results are cached to disk for 30 minutes (failed checks: 5 minutes); Quick Connect reuses fresh rankings and verifies the chosen connection again. **Retest speeds** bypasses the cache. These are latency measurements, not bandwidth estimates.
+
+When no fresh cached server succeeds, checks TCP responsiveness across the loaded list with bounded parallelism, then measures an actual HTTPS request through up to 20 of the most responsive Shadowsocks endpoints. It picks the lowest measured HTTPS time among successful tests and verifies the selected connection again before marking it connected. This means **fastest tested**, not a guaranteed globally fastest server or a bandwidth benchmark. Measurements use Google's HTTPS connectivity endpoint; its availability can affect results. Cancel stops the search and closes its temporary engine. A refresh discovers new servers; there is no background subscription polling or silent server switching.
 
 ## Run from source
 
@@ -183,7 +187,7 @@ The runnable JAR works on macOS (Apple Silicon and Intel), Windows (x64 and ARM6
 
 ## Portable downloads / packaging
 
-The same **Moondrop.zip** works on macOS (Apple Silicon and Intel), Windows (x64 and ARM64), and Linux x64. It includes `moondrop.jar`, platform launchers, instructions, and licenses. It contains **no Java runtime**. The standalone JAR is also available on the [release page](https://github.com/Sipper1236/moondrop/releases/tag/v0.1.0).
+The same **Moondrop.zip** works on macOS (Apple Silicon and Intel), Windows (x64 and ARM64), and Linux x64. It includes `moondrop.jar`, platform launchers, instructions, and licenses. It contains **no Java runtime**. The standalone JAR is also available on the [release page](https://github.com/Sipper1236/moondrop/releases/tag/v0.2.0).
 
 Developers can build the ZIP using JDK 17+ and Maven 3.9+:
 
@@ -216,7 +220,7 @@ Native macOS/Windows system-proxy behavior must be acceptance-tested on those pl
 - Windows: `%LOCALAPPDATA%/Shadowmere`
 - Linux: `~/.local/share/shadowmere-desktop`
 
-Moondrop keeps the original Shadowmere-named data folders for compatibility and recovery across the rename. Only one app instance can own the proxy settings. A durable snapshot is written before system settings change and removed after restoration. An interrupted session is recovered on next launch. A force-killed app can leave system proxy settings enabled until then; reopen Moondrop to restore them. Startup terminates leftover cores only when a private ownership record matches their PID, start time, and executable; session files must belong to this app's data directory. If settings recovery fails, the snapshot is retained and a live listener is kept available while you retry Disconnect. Server passwords exist only in memory and temporary session configuration files, removed on disconnect and after startup recovery. No browsing history or server list is persisted.
+Moondrop keeps the original Shadowmere-named data folders for compatibility and recovery across the rename. Only one app instance can own the proxy settings. A durable snapshot is written before system settings change and removed after restoration. An interrupted session is recovered on next launch. A force-killed app can leave system proxy settings enabled until then; reopen Moondrop to restore them. Startup terminates leftover cores only when a private ownership record matches their PID, start time, and executable; session files must belong to this app's data directory. If settings recovery fails, the snapshot is retained and a live listener is kept available while you retry Disconnect. Server passwords exist only in memory and temporary session configuration files, removed on disconnect and after startup recovery. Latency measurements and hashed server identifiers are persisted in `server-performance.json`; passwords are not stored in that cache. No browsing history or server list is persisted.
 
 ## Architecture and credits
 

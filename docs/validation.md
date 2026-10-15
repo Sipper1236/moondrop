@@ -10,3 +10,11 @@ Validated on Linux x64, Java 17, sing-box 1.14.3. This machine already had its o
 - Initially built a native Linux app image with `jpackage`. This packaging has since been replaced by a portable ZIP that requires separately installed Java; current downloads do not include Java.
 
 The original macOS/Windows workflow ran after upload; its runtime-bundling packaging is now replaced by the portable ZIP workflow. Native network-settings permissions, Windows PAC/automatic discovery interactions, signed distribution, and target-platform acceptance tests remain to be validated. These are development builds, not published releases.
+
+## Latency and caching update — 2026-10-15
+
+- All 25 local tests passed, including real encrypted traffic, cache expiry/credential invalidation, cancellation cleanup, and preserving completed measurements during forced retests.
+- Live background checks populated actual per-server HTTPS latencies and sorted working servers by latency.
+- Reopened the app: all 36 baseline successful measurements were reused with unchanged timestamps. Remaining stale/unmeasured servers continued in the background.
+- Clicked Quick Connect with saved results: the activity log confirmed cached ranking was used and the selected connection was verified again.
+- Updated preview shows live results; values are latency in milliseconds, not bandwidth estimates.

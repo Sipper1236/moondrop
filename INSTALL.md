@@ -81,7 +81,7 @@ java -version
 
 ## 2. Download Moondrop
 
-1. Open the [Moondrop v0.1.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.1.0). This is a prerelease.
+1. Open the [Moondrop v0.2.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.2.0). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP into a folder you want to keep. Run Moondrop from the extracted folder, not from inside the ZIP.
 
@@ -116,7 +116,9 @@ Or run `java -jar moondrop.jar`.
 
 ## 4. Connect
 
-Click **Quick Connect**. Moondrop tests servers and automatically connects to the fastest one that successfully completes its HTTPS checks. This is the fastest server tested, not a promise about every server or download speed.
+Each server shows verified HTTPS latency in milliseconds; lower is faster. Tests run in the background and the list defaults to **Fastest first**. Successful results are saved for **30 minutes**, and failed checks for **5 minutes**, so reopening or refreshing Moondrop reuses fresh measurements. Hover a result to see when it was measured. Use **Retest speeds** to check again, or **Stop testing** to cancel.
+
+Click **Quick Connect**. Moondrop tests servers and automatically connects to the fastest one that successfully completes its HTTPS checks. It uses a fresh cached ranking when available and verifies the selected connection again. This is the fastest server tested, not a promise about every server or download speed.
 
 On the first connection, Moondrop downloads its separate **sing-box networking engine** from the official upstream release and verifies its checksum. This is not a Java installation. The first launch and engine download need working internet access.
 

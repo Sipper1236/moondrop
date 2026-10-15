@@ -11,11 +11,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class Main implements AppWindow.Actions {
     private final Path data;
     private final CoreInstaller installer;
     private final SystemProxy system;
+    private final PerformanceCache performanceCache;
+    private final PerformanceResults performance = new PerformanceResults();
+    private final ExecutorService speedWorker = Executors.newSingleThreadExecutor(r -> {Thread t=new Thread(r,"speed-tests");t.setDaemon(true);return t;});
+    private final AtomicInteger speedGeneration = new AtomicInteger();
+    private final AtomicInteger measurements = new AtomicInteger();
+    private final Object speedLock = new Object();
+    private volatile Future<?> speedTask;
+    private volatile boolean speedTesting;
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> new Thread(r,"app-worker"));
     private final ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(r -> {Thread t=new Thread(r,"connection-monitor");t.setDaemon(true);return t;});
     private final AtomicBoolean closing = new AtomicBoolean();
@@ -27,7 +36,7 @@ public final class Main implements AppWindow.Actions {
     private FileChannel lockChannel;
     private FileLock lock;
 
-    private Main(Path data) { this.data=data; installer=new CoreInstaller(data); system=new SystemProxy(data); }
+    private Main(Path data) { this.data=data; installer=new CoreInstaller(data); system=new SystemProxy(data);performanceCache=new PerformanceCache(data); }
 
     public static void main(String[] args) {
         if(args.length>0 && (args[0].equals("--install-engine")||args[0].equals("--smoke-test"))) {
@@ -87,8 +96,9 @@ public final class Main implements AppWindow.Actions {
         window.addWindowListener(new WindowAdapter(){@Override public void windowClosing(WindowEvent e){shutdown();}});
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             closing.set(true); Future<?> running=task; if(running!=null) running.cancel(true);
+            cancelSpeedTests();speedWorker.shutdownNow();
             worker.shutdownNow();
-            try {worker.awaitTermination(15,TimeUnit.SECONDS); cleanup();} catch(Exception ignored) { }
+            try {worker.awaitTermination(15,TimeUnit.SECONDS);speedWorker.awaitTermination(10,TimeUnit.SECONDS); cleanup();} catch(Exception ignored) { }
             releaseLock();
         },"shutdown-recovery"));
         window.setCoreReady(installer.ready());
@@ -113,30 +123,118 @@ public final class Main implements AppWindow.Actions {
 
     @Override public void refresh() {submit("Refreshing servers",this::loadServers);}
     private void loadServers() throws Exception {
+        cancelSpeedTests();
         if(!connected)ui(() -> window.setConnection("Loading servers","Getting active locations from Shadowmere…",false));
         List<Server> fresh=new ShadowmereApi().fetch(); servers=fresh;
-        ui(() -> {window.setServers(fresh);if(!connected)window.setConnection("Disconnected","Choose Quick Connect or select a location.",false);}); log("Updated · "+fresh.size()+" active Shadowsocks servers");
+        performance.replaceAll(Map.of());
+        try {performance.replaceAll(performanceCache.load(fresh));}catch(IOException e){log("Could not read saved latency results. Servers will be checked again.");}
+        Map<String,ServerPerformance> saved=performance.snapshot();
+        ui(() -> {
+            window.clearPerformance();window.setServers(fresh);
+            for(Server server:fresh) {ServerPerformance p=saved.get(PerformanceCache.serverKey(server));if(p!=null)window.setPerformance(server,p);}
+            if(!connected)window.setConnection("Disconnected","Choose Quick Connect or select a location.",false);
+        });
+        log("Updated · "+fresh.size()+" active Shadowsocks servers");
+        startSpeedTests(false);
     }
 
-    @Override public void installCore() {submit("Installing engine", () -> {installer.install(this::log); ui(() -> window.setCoreReady(true));});}
+    @Override public void installCore() {submit("Installing engine",this::prepareEngine);}
     @Override public void connect(Server server,boolean useSystem) {submit("Connecting", () -> {ensureEngine();connectNow(server,useSystem,null);});}
     @Override public void quickConnect(boolean useSystem) {
+        cancelSpeedTests();
         submit("Finding a server", () -> {
+            try {
             ensureEngine();
             if(servers.isEmpty()) loadServers();
-            QuickConnect.Result result=new QuickConnect().find(servers,installer.binary(),data,progress -> {
+            cancelSpeedTests();
+            List<Server> ranked=performance.ranked(servers).stream().limit(3).toList();
+            for(Server cached:ranked) {
+                checkCancelled();
+                ProxyEngine.ensurePortFree(ProxyEngine.PORT);
+                try {connectNow(cached,useSystem,null);log("Used cached server ranking; connection verified again.");return;}
+                catch(Exception failure) {
+                    if(Thread.currentThread().isInterrupted()||closing.get()||system.hasRecovery())throw failure;
+                    ServerPerformance result=performance.get(cached);
+                    if(result==null||result.state()!=ServerPerformance.State.FAILED)throw failure;
+                }
+            }
+            List<Server> candidates=performance.quickCandidates(servers);
+            if(candidates.isEmpty())throw new IOException("No recently tested servers are working. Use Retest speeds or refresh the server list.");
+            QuickConnect.Result result=new QuickConnect().find(candidates,installer.binary(),data,progress -> {
                 log(progress); ui(() -> window.setConnection("Finding a server",progress,false));
-            });
+            },update -> recordPerformance(update.server(),update.performance()));
             checkCancelled();
             log("Fastest of "+result.tested()+" tested · "+result.server().displayName()+" · "+result.millis()+" ms HTTPS");
             connectNow(result.server(),useSystem,result.millis());
+            } finally {if(!closing.get()&&!Thread.currentThread().isInterrupted())startSpeedTests(false);}
         });
+    }
+
+    @Override public void retestSpeeds() {
+        if(speedTesting)cancelSpeedTests();else startSpeedTests(true);
+    }
+
+    private void startSpeedTests(boolean force) {
+        cancelSpeedTests();
+        List<Server> pending=performance.pending(servers,force);
+        if(pending.isEmpty()) {ui(() -> window.setSpeedTesting(false,"Using cached latency results"));return;}
+        int generation=speedGeneration.incrementAndGet();speedTesting=true;
+        ui(() -> window.setSpeedTesting(true,"Preparing latency checks…"));
+        speedTask=speedWorker.submit(() -> {
+            try {
+                prepareEngine();
+                if(speedGeneration.get()!=generation||closing.get()||Thread.currentThread().isInterrupted())return;
+                new ServerSpeedTester().test(pending,installer.binary(),data,update -> {
+                    synchronized(speedLock) {if(speedGeneration.get()==generation&&!closing.get())recordPerformance(update.server(),update.performance());}
+                },progress -> ui(() -> {if(speedGeneration.get()==generation)window.setSpeedTesting(true,progress);}));
+            } catch(InterruptedException|CancellationException ignored) {Thread.currentThread().interrupt();}
+            catch(Exception e) {if(speedGeneration.get()==generation&&!closing.get())log("Latency checks: "+safeMessage(e));}
+            finally {
+                synchronized(speedLock) {
+                if(speedGeneration.get()==generation) {
+                    speedTesting=false;resetPendingMeasurements();savePerformance();
+                    ui(() -> window.setSpeedTesting(false,"Latency results saved · fresh for 30 min"));
+                }
+                }
+            }
+        });
+    }
+
+    private void cancelSpeedTests() {
+        synchronized(speedLock) {
+        speedGeneration.incrementAndGet();speedTesting=false;
+        Future<?> running=speedTask;if(running!=null)running.cancel(true);
+        resetPendingMeasurements();savePerformance();
+        ui(() -> window.setSpeedTesting(false,"Latency · cached for 30 min"));
+        }
+    }
+
+    private void resetPendingMeasurements() {
+        performance.cancelTesting(servers).forEach((server,result) -> ui(() -> window.setPerformance(server,result)));
+    }
+
+    private void recordPerformance(Server server,ServerPerformance value) {
+        performance.record(server,value);
+        ui(() -> window.setPerformance(server,value));
+        if(value.state()!=ServerPerformance.State.TESTING&&measurements.incrementAndGet()%8==0)savePerformance();
+    }
+
+    private synchronized void savePerformance() {
+        if(performance.isEmpty())return;
+        try {performanceCache.save(performance.snapshot());}catch(IOException e){log("Could not save latency results to disk.");}
+    }
+
+    private void prepareEngine() throws Exception {
+        synchronized(installer) {
+            if(!installer.ready())installer.install(this::log);
+        }
+        ui(() -> window.setCoreReady(true));
     }
 
     private void ensureEngine() throws Exception {
         if(!installer.ready()) {
             ui(() -> window.setConnection("Installing engine","Preparing your first connection…",false));
-            installer.install(this::log);ui(() -> window.setCoreReady(true));checkCancelled();
+            prepareEngine();checkCancelled();
         }
     }
 
@@ -148,7 +246,11 @@ public final class Main implements AppWindow.Actions {
         try {
             fresh.start(Map.of(ProxyEngine.PORT,server),this::log);
             ui(() -> window.setConnection("Verifying","Checking HTTPS through "+server.countryName()+"…",false));
-            long ms=ProxyEngine.probe(ProxyEngine.PORT); checkCancelled();
+            long ms;
+            try {ms=ProxyEngine.probe(ProxyEngine.PORT);}
+            catch(IOException e) {if(!Thread.currentThread().isInterrupted()){recordPerformance(server,ServerPerformance.failed());savePerformance();}throw e;}
+            checkCancelled();
+            recordPerformance(server,ServerPerformance.verified(ms));savePerformance();
             if(useSystem) system.enable("127.0.0.1",ProxyEngine.PORT);
             checkCancelled(); connected=true;
             String detail=(useSystem?"System proxy":"Local proxy")+" · HTTPS "+(measured==null?ms:measured)+" ms";
@@ -192,10 +294,11 @@ public final class Main implements AppWindow.Actions {
 
     private void shutdown() {
         if(!closing.compareAndSet(false,true)) return;
+        cancelSpeedTests();
         window.setBusy(true);
         Future<?> running=task;if(running!=null)running.cancel(true);
         worker.submit(() -> {
-            try {cleanup();monitor.shutdownNow();releaseLock();SwingUtilities.invokeLater(() -> {window.dispose();System.exit(0);});}
+            try {cleanup();speedWorker.shutdownNow();speedWorker.awaitTermination(10,TimeUnit.SECONDS);monitor.shutdownNow();releaseLock();SwingUtilities.invokeLater(() -> {window.dispose();System.exit(0);});}
             catch(Exception e) {closing.set(false);ui(() -> {window.setBusy(false);window.showError("Restore proxy settings",safeMessage(e)+"\nKeep the app open and retry Disconnect before closing.");});}
         });
     }

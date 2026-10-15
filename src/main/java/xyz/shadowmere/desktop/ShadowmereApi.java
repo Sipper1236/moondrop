@@ -18,7 +18,7 @@ public final class ShadowmereApi {
         for (int page = 1; page <= total; page++) {
             HttpRequest request = HttpRequest.newBuilder(URI.create(ENDPOINT + "&page=" + page))
                     .timeout(Duration.ofSeconds(20)).header("Accept", "application/json")
-                    .header("User-Agent", "Moondrop/0.1 (+https://github.com/shadowmere-xyz/shadowmere)").GET().build();
+                    .header("User-Agent", "Moondrop/0.2 (+https://github.com/shadowmere-xyz/shadowmere)").GET().build();
             var response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) throw new IOException("Shadowmere returned HTTP " + response.statusCode() + ". Try refreshing later.");
             JsonElement root = JsonParser.parseString(response.body());

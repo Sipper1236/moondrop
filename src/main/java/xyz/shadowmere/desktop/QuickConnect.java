@@ -14,6 +14,11 @@ public final class QuickConnect {
     private record Verified(Server server, long millis) { }
 
     public Result find(List<Server> servers, Path binary, Path directory, Consumer<String> progress) throws Exception {
+        return find(servers,binary,directory,progress,ignored -> { });
+    }
+
+    public Result find(List<Server> servers, Path binary, Path directory, Consumer<String> progress,
+                       Consumer<ServerSpeedTester.Update> measurements) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(16);
         List<Future<Candidate>> reachable = new ArrayList<>();
         try {
@@ -23,7 +28,7 @@ public final class QuickConnect {
                 try (Socket socket = new Socket()) {
                     socket.connect(new InetSocketAddress(server.host(),server.port()), 1200);
                     return new Candidate(server, System.nanoTime() - start);
-                } catch (IOException e) { return null; }
+                } catch (IOException e) {if(!Thread.currentThread().isInterrupted())measurements.accept(new ServerSpeedTester.Update(server,ServerPerformance.failed())); return null; }
             }));
             List<Candidate> candidates = new ArrayList<>();
             for (Future<Candidate> future : reachable) { Candidate c = future.get(); if (c != null) candidates.add(c); }
@@ -45,13 +50,17 @@ public final class QuickConnect {
                 CompletionService<Verified> completed = new ExecutorCompletionService<>(pool);
                 for (var binding : bindings.entrySet()) completed.submit(() -> {
                     try { return new Verified(binding.getValue(), ProxyEngine.probe(binding.getKey())); }
-                    catch (IOException e) { return null; }
+                    catch (IOException e) { return new Verified(binding.getValue(),-1); }
                 });
                 List<Verified> working = new ArrayList<>();
                 for (int i = 0; i < bindings.size(); i++) {
                     Future<Verified> future = completed.poll(12,TimeUnit.SECONDS);
                     if (future == null) break;
-                    Verified result = future.get(); if (result != null) working.add(result);
+                    Verified result = future.get();
+                    if(result!=null) {
+                        measurements.accept(new ServerSpeedTester.Update(result.server(),result.millis()>=0?ServerPerformance.verified(result.millis()):ServerPerformance.failed()));
+                        if(result.millis()>=0)working.add(result);
+                    }
                     progress.accept("HTTPS checks " + (i+1) + "/" + bindings.size() + " · " + working.size() + " working");
                 }
                 Verified best = working.stream().min(Comparator.comparingLong(Verified::millis))
