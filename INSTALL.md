@@ -1,10 +1,10 @@
 # Install Moondrop
 
-Download from the [Moondrop v0.6.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.1), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
+Download from the [Moondrop v0.6.2 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.2), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
 
 ## Windows installer
 
-1. Under **Assets**, download **Moondrop-0.6.1-Windows-x64.exe** for a Windows x64 PC.
+1. Under **Assets**, download **Moondrop-0.6.2-Windows-x64.exe** for a Windows x64 PC.
 2. Run the installer. It installs for your user account and creates Start menu and desktop shortcuts.
 3. Open **Moondrop** from either shortcut.
 
@@ -13,7 +13,7 @@ This release is unsigned. Windows SmartScreen or Microsoft Defender may warn abo
 ## macOS installer
 
 1. Open Apple menu → **About This Mac** to check your chip.
-2. Download **Moondrop-0.6.1-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.6.1-macOS-x64.dmg** for Intel.
+2. Download **Moondrop-0.6.2-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.6.2-macOS-x64.dmg** for Intel.
 3. Open the DMG and drag **Moondrop.app** into **Applications**. If that folder is not writable by your account, use `~/Applications` instead.
 4. Open Moondrop from Applications, then eject the installer disk.
 
@@ -106,7 +106,7 @@ java -version
 
 ### 2. Download the portable archive
 
-1. Open the [Moondrop v0.6.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.1). This is a prerelease.
+1. Open the [Moondrop v0.6.2 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.2). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 

@@ -1,6 +1,7 @@
 package xyz.shadowmere.desktop;
 
 import javax.swing.*;
+import com.formdev.flatlaf.extras.FlatSVGIcon;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -52,8 +53,8 @@ public final class AppWindow extends JFrame {
     private final Map<Server, ServerPerformance> performance = new HashMap<>();
     private final JComboBox<String> sort = new JComboBox<>(new String[]{"Best connection", "Country name"});
     private final JButton retest = new JButton("Retest speeds");
-    private final JButton settingsButton = new JButton("Settings");
-    private final JButton update = new JButton("Check for updates");
+    private final JButton settingsButton = iconButton("settings", "Settings");
+    private final JButton update = iconButton("update", "Check for updates");
     private final JLabel updateStatus = label("", MUTED, 11);
     private boolean updateBusy;
     private String updateVersion;
@@ -66,7 +67,7 @@ public final class AppWindow extends JFrame {
     private final JLabel selectedName = label("Choose a server", TEXT, 19);
     private final JLabel selectedDetail = label("Select a location from the list.", MUTED, 12);
     private final JButton quickConnect = new JButton("Quick Connect");
-    private final JButton connect = new JButton("Connect selected server"), refresh = new JButton("Refresh servers"), install = new JButton("Install engine");
+    private final JButton connect = new JButton("Connect selected server"), refresh = iconButton("refresh", "Refresh servers"), install = new JButton("Install engine");
     private final JCheckBox systemProxy = new JCheckBox("Use as system proxy");
     private final JTextArea log = new JTextArea();
     private List<Server> all = List.of();
@@ -86,7 +87,7 @@ public final class AppWindow extends JFrame {
         JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT,12,0)); brand.setOpaque(false);
         brand.add(new Mark());
         JPanel words = vertical(); words.add(label("MOONDROP", TEXT,20)); words.add(label("by rayyan", MUTED,12)); brand.add(words);
-        header.add(brand,BorderLayout.WEST); refresh.addActionListener(e -> actions.refresh()); JPanel headerTools=new JPanel(new FlowLayout(FlowLayout.RIGHT,8,0));headerTools.setOpaque(false);updateStatus.setPreferredSize(new Dimension(125,30));headerTools.add(updateStatus);update.setMargin(new Insets(5,8,5,8));update.setToolTipText("Check GitHub for a newer Moondrop release");update.addActionListener(e -> {if(updateVersion!=null)actions.restartToUpdate();else actions.checkForUpdates();});headerTools.add(update);headerTools.add(refresh); settingsButton.addActionListener(e -> showSettings()); headerTools.add(settingsButton);header.add(headerTools,BorderLayout.EAST); root.add(header,BorderLayout.NORTH);
+        header.add(brand,BorderLayout.WEST); refresh.addActionListener(e -> actions.refresh()); JPanel headerTools=new JPanel(new FlowLayout(FlowLayout.RIGHT,8,0));headerTools.setOpaque(false);updateStatus.setPreferredSize(new Dimension(125,30));headerTools.add(updateStatus);update.setToolTipText("Check GitHub for a newer Moondrop release");update.addActionListener(e -> {if(updateVersion!=null)actions.restartToUpdate();else actions.checkForUpdates();});headerTools.add(update);headerTools.add(refresh); settingsButton.addActionListener(e -> showSettings()); headerTools.add(settingsButton);header.add(headerTools,BorderLayout.EAST); root.add(header,BorderLayout.NORTH);
         JPanel body = new JPanel(new GridLayout(1,2,26,0)); body.setOpaque(false); root.add(body,BorderLayout.CENTER);
         JPanel browser = panel(new BorderLayout(0,14)); body.add(browser);
         JPanel filters = vertical(); filters.add(label("EXPLORE LOCATIONS",MUTED,11)); filters.add(Box.createVerticalStrut(13));
@@ -193,8 +194,7 @@ public final class AppWindow extends JFrame {
         updateBusy=running;
         updateStatus.setText(text==null?"":text);
         updateStatus.setToolTipText(text);
-        update.setToolTipText(text);
-        update.setText(updateVersion!=null?"Restart to update":running?"Checking…":"Check for updates");
+        updateAction(updateVersion!=null?"Restart to update":running?"Checking for updates…":"Check for updates");
         update.setEnabled(!updateBusy);
     }
     public void setUpdateReady(String version){
@@ -202,12 +202,12 @@ public final class AppWindow extends JFrame {
         updateBusy=false;
         updateStatus.setText(updateVersion==null?"":"v"+updateVersion+" ready");
         updateStatus.setToolTipText(updateVersion==null?null:"Moondrop "+updateVersion+" is downloaded. Restart to install it.");
-        update.setText(updateVersion==null?"Check for updates":"Restart to update");
+        updateAction(updateVersion==null?"Check for updates":"Restart to update");
         update.setToolTipText(updateVersion==null?"Check GitHub for a newer Moondrop release":"Restart Moondrop to install the downloaded update");
         update.setEnabled(true);
     }
     public void setNativeUpdateReady(String version){
-        setUpdateReady(version);update.setText("Download update");
+        setUpdateReady(version);updateAction("Download update");
         update.setToolTipText("Open the official release to update Moondrop and its bundled Java together.");
     }
     public void selectServer(Server server){
@@ -230,6 +230,20 @@ public final class AppWindow extends JFrame {
         connect.setEnabled(busy||connected||(servers.getSelectedValue()!=null));
         systemProxy.setEnabled(systemProxySupported&&!busy&&!connected);
         servers.setEnabled(!busy&&!connected); search.setEnabled(!busy&&!connected); country.setEnabled(!busy&&!connected);
+    }
+    private static JButton iconButton(String icon,String name) {
+        JButton button=new JButton(new FlatSVGIcon("icons/"+icon+".svg",20,20));
+        button.setPreferredSize(new Dimension(38,38));
+        button.setMargin(new Insets(8,8,8,8));
+        button.setToolTipText(name);
+        button.getAccessibleContext().setAccessibleName(name);
+        button.setActionCommand(name);
+        return button;
+    }
+    private void updateAction(String name) {
+        update.setToolTipText(name);
+        update.getAccessibleContext().setAccessibleName(name);
+        update.setActionCommand(name);
     }
     private static String escape(String value){return value==null?"":value.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;");}
     private static JPanel panel(LayoutManager layout){JPanel p=new JPanel(layout);p.setBackground(PANEL);p.setBorder(new EmptyBorder(22,22,22,22));p.putClientProperty("FlatLaf.style","arc: 20");return p;}
