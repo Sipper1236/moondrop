@@ -88,12 +88,28 @@ public final class ProxyEngine implements AutoCloseable {
      * which could silently share an existing Windows listener.
      */
     public static void ensurePortFree(int port) throws IOException {
-        try (Socket socket = new Socket()) {
-            try { socket.connect(new InetSocketAddress("127.0.0.1", port), 500); }
-            catch (ConnectException refused) { return; }
-            catch (SocketTimeoutException busy) { throw occupied(port); }
-            catch (IOException failure) { throw new IOException("Could not check local proxy port " + port + ".", failure); }
-        }
+        // Windows may report the child exited before its kernel listener finishes
+        // closing. Allow that brief teardown without accepting a persistent listener.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        do {
+            try (Socket socket = new Socket()) {
+                int timeout = (int) Math.max(1, Math.min(500,
+                    TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())));
+                try { socket.connect(new InetSocketAddress("127.0.0.1", port), timeout); }
+                catch (ConnectException refused) { return; }
+                catch (SocketTimeoutException busy) { /* Check again until the deadline. */ }
+                catch (IOException failure) { throw new IOException("Could not check local proxy port " + port + ".", failure); }
+            }
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) break;
+            try { TimeUnit.NANOSECONDS.sleep(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(50))); }
+            catch (InterruptedException cancellation) {
+                Thread.currentThread().interrupt();
+                CancellationException failure = new CancellationException("Local proxy port check was cancelled.");
+                failure.initCause(cancellation);
+                throw failure;
+            }
+        } while (System.nanoTime() < deadline);
         throw occupied(port);
     }
 

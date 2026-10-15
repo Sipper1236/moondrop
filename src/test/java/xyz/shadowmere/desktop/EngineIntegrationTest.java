@@ -30,9 +30,20 @@ class EngineIntegrationTest {
     private void assertListenerClosed(int port) throws Exception {
         // A refused connection proves the listener closed without treating Windows
         // TIME_WAIT as an active listener or rebinding with unsafe SO_REUSEADDR.
-        try(Socket socket=new Socket()) {
-            assertThrows(ConnectException.class,()->socket.connect(new InetSocketAddress("127.0.0.1",port),1000));
-        }
+        // Process exit can precede final kernel socket teardown on Windows.
+        long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(2);
+        do {
+            try(Socket socket=new Socket()) {
+                int timeout=(int)Math.max(1,Math.min(250,TimeUnit.NANOSECONDS.toMillis(deadline-System.nanoTime())));
+                try {socket.connect(new InetSocketAddress("127.0.0.1",port),timeout);}
+                catch(ConnectException refused) {return;}
+                catch(SocketTimeoutException pending) { /* Not proof of closure: retry. */ }
+            }
+            long remaining=deadline-System.nanoTime();
+            if(remaining<=0)break;
+            TimeUnit.NANOSECONDS.sleep(Math.min(remaining,TimeUnit.MILLISECONDS.toNanos(25)));
+        } while(System.nanoTime()<deadline);
+        fail("Proxy listener still accepts connections or does not refuse them after two seconds on port "+port);
     }
     @Test void encryptedRoundTripAndCleanup() throws Exception {
         String core=System.getProperty("engine.test.path","");
@@ -72,6 +83,20 @@ class EngineIntegrationTest {
     @Test void occupiedPortProducesActionableError() throws Exception {
         try(ServerSocket socket=new ServerSocket(0,0,InetAddress.getByName("127.0.0.1"))) {
             assertTrue(assertThrows(java.io.IOException.class,()->ProxyEngine.ensurePortFree(socket.getLocalPort())).getMessage().contains("in use"));
+        }
+    }
+    @Test void portCheckAllowsABriefListenerTeardown() throws Exception {
+        try(ServerSocket socket=new ServerSocket(0,0,InetAddress.getByName("127.0.0.1"))) {
+            int port=socket.getLocalPort();
+            Thread closer=new Thread(()->{
+                try {Thread.sleep(100);socket.close();}
+                catch(InterruptedException e) {Thread.currentThread().interrupt();}
+                catch(IOException ignored) { }
+            });
+            closer.start();
+            try {assertDoesNotThrow(()->ProxyEngine.ensurePortFree(port));}
+            finally {closer.join(1000);}
+            assertListenerClosed(port);
         }
     }
     @Test void recoversOnlyAnAppOwnedCoreAndRemovesItsSession() throws Exception {
