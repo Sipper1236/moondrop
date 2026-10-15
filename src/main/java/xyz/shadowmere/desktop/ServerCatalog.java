@@ -13,11 +13,24 @@ public final class ServerCatalog {
     private final List<Source> sources;
     private final Duration timeout;
 
-    public ServerCatalog() {
-        this(List.of(new Source("Shadowmere", () -> new ShadowmereApi().fetch()),
-                new Source("GFP", () -> ShadowsocksFeed.gfp().fetch()),
-                new Source("V2rayCollector", () -> ShadowsocksFeed.collector().fetch()),
-                new Source("Morpheus", () -> ShadowsocksFeed.morpheus().fetch())), Duration.ofSeconds(45));
+    public ServerCatalog() {this(defaultSources(),Duration.ofSeconds(45));}
+    private static List<Source> defaultSources() {
+        List<Source> feeds=new ArrayList<>();
+        feeds.add(new Source("Shadowmere",()->new ShadowmereApi().fetch()));
+        feeds.add(new Source("GFP Shadowsocks",()->ShadowsocksFeed.gfp().fetch()));
+        feeds.add(new Source("V2rayCollector Shadowsocks",()->ShadowsocksFeed.collector().fetch()));
+        feeds.add(new Source("Morpheus Shadowsocks",()->ShadowsocksFeed.morpheus().fetch()));
+        for(String protocol:List.of("hy2","tuic")) {
+            java.net.URI endpoint=java.net.URI.create("https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/"+protocol+".txt");
+            feeds.add(new Source("GFP "+protocol,()->ShadowsocksFeed.protectedFeed(endpoint,"gfp:").fetch()));
+        }
+        java.net.URI collector=java.net.URI.create("https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/mix");
+        feeds.add(new Source("V2rayCollector protected",()->ShadowsocksFeed.protectedFeed(collector,"collector:").fetch()));
+        for(String protocol:List.of("vless","trojan","hysteria2","tuic")) {
+            java.net.URI endpoint=java.net.URI.create("https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/"+protocol+".txt");
+            feeds.add(new Source("Morpheus "+protocol,()->ShadowsocksFeed.protectedFeed(endpoint,"morpheus:").fetch()));
+        }
+        return feeds;
     }
     ServerCatalog(List<Source> sources, Duration timeout) {
         this.sources=List.copyOf(sources);this.timeout=timeout;
@@ -35,7 +48,7 @@ public final class ServerCatalog {
                 Source source=sources.get(i);Future<List<Server>> future=results.get(i);
                 try {
                     List<Server> entries=future.get();
-                    if(entries.isEmpty()) {warnings.add(source.name()+" returned no compatible Shadowsocks servers.");continue;}
+                    if(entries.isEmpty()) {warnings.add(source.name()+" returned no compatible protected proxies.");continue;}
                     int added=0;
                     for(Server server:entries)if(unique.putIfAbsent(PerformanceCache.serverKey(server),server)==null)added++;
                     counts.put(source.name(),added);
@@ -44,7 +57,7 @@ public final class ServerCatalog {
                     warnings.add(source.name()+" is unavailable. Refresh to try again.");
                 }
             }
-            if(unique.isEmpty())throw new IOException("No server sources could provide compatible Shadowsocks servers. Check your connection and refresh.");
+            if(unique.isEmpty())throw new IOException("No server sources could provide compatible protected proxies. Check your connection and refresh.");
             List<Server> servers=unique.values().stream().sorted(Comparator.comparing(Server::countryName).thenComparing(Server::displayName)).toList();
             return new Result(servers,Collections.unmodifiableMap(counts),List.copyOf(warnings));
         } finally {workers.shutdownNow();}

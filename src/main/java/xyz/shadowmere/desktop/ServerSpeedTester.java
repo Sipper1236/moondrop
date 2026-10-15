@@ -13,10 +13,12 @@ public final class ServerSpeedTester {
         boolean reachable(Server server) throws Exception;
         AutoCloseable start(Path binary, Path directory, Map<Integer,Server> bindings) throws Exception;
         long probe(int port) throws Exception;
+        default long download(int port) throws Exception { return -1; }
     }
     private final Backend backend;
     public ServerSpeedTester() { this(new Backend() {
         public boolean reachable(Server server) throws Exception {
+            if(server.usesUdpTransport())return true; // QUIC is verified by the HTTPS path, never a TCP handshake.
             try (Socket socket = new Socket()) {
                 socket.connect(new InetSocketAddress(server.host(), server.port()), 1200); return true;
             }
@@ -27,6 +29,7 @@ public final class ServerSpeedTester {
             catch (Exception failure) { engine.close(); throw failure; }
         }
         public long probe(int port) throws Exception { return ProxyEngine.probe(port); }
+        public long download(int port) throws Exception { return ConnectionQuality.download(port); }
     }); }
     ServerSpeedTester(Backend backend) { this.backend = backend; }
 
@@ -59,6 +62,32 @@ public final class ServerSpeedTester {
         } finally { workers.shutdownNow(); }
     }
 
+    /** Downloads sequentially so candidates never compete for local bandwidth. */
+    public void testThroughput(Map<Server,ServerPerformance> candidates, Path binary, Path directory,
+                               Consumer<Update> results, Consumer<String> progress) throws Exception {
+        int measured = 0;
+        for (var candidate : candidates.entrySet()) {
+            interrupted();
+            ServerPerformance quality = candidate.getValue();
+            if (!quality.successful() || quality.throughputFresh()) continue;
+            if (measured++ >= 5) break;
+            progress.accept("Measuring download speed " + measured + " of up to 5");
+            int port;
+            try (ServerSocket reservation = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
+                port = reservation.getLocalPort();
+            }
+            long bytesPerSecond = 0;
+            try (AutoCloseable engine = backend.start(binary, directory, Map.of(port, candidate.getKey()))) {
+                interrupted();
+                bytesPerSecond = backend.download(port);
+            } catch (InterruptedException cancellation) { throw cancellation; }
+            catch (Exception failure) { interrupted(); }
+            interrupted();
+            // A negative value is the legacy test backend's explicit opt-out.
+            if (bytesPerSecond >= 0) results.accept(new Update(candidate.getKey(), quality.withThroughput(bytesPerSecond)));
+        }
+    }
+
     private void measure(List<Server> servers, Path binary, Path directory, ExecutorService workers,
                          Consumer<Update> results) throws Exception {
         interrupted();
@@ -84,7 +113,7 @@ public final class ServerSpeedTester {
         try (engine) {
             List<Future<ServerPerformance>> probes = new ArrayList<>();
             for (int port : bindings.keySet()) probes.add(workers.submit(() -> {
-                try { return ServerPerformance.verified(backend.probe(port)); }
+                try { return ConnectionQuality.measure(port, backend::probe); }
                 catch (InterruptedException cancellation) { throw cancellation; }
                 catch (Exception failure) { return ServerPerformance.failed(); }
             }));

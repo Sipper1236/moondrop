@@ -1,5 +1,6 @@
 package xyz.shadowmere.desktop;
 
+import com.google.gson.*;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -8,7 +9,11 @@ import java.util.Locale;
 import java.util.Set;
 
 public record Server(String id, String host, int port, String method, String password,
-                     String country, String location, String lastChecked, boolean active) {
+                     String country, String location, String lastChecked, boolean active, String protocol, String profileJson) {
+    public Server(String id, String host, int port, String method, String password,
+                  String country, String location, String lastChecked, boolean active) {
+        this(id, host, port, method, password, country, location, lastChecked, active, "shadowsocks", null);
+    }
     private static final Set<String> ENCRYPTED_METHODS = Set.of(
             "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305",
             "aes-128-gcm", "aes-192-gcm", "aes-256-gcm", "chacha20-ietf-poly1305", "xchacha20-ietf-poly1305",
@@ -17,7 +22,11 @@ public record Server(String id, String host, int port, String method, String pas
     static boolean supportsEncryptedMethod(String method) {return ENCRYPTED_METHODS.contains(method);}
     public Server {
         if (host == null || host.isBlank() || port < 1 || port > 65535 || method == null || method.isBlank()
-                || password == null || password.isEmpty()) throw new IllegalArgumentException("Invalid Shadowsocks server");
+                || password == null || password.isEmpty()) throw new IllegalArgumentException("Invalid proxy server");
+        protocol = protocol == null || protocol.isBlank() ? "shadowsocks" : protocol;
+        if (!java.util.Set.of("shadowsocks", "vless", "trojan", "hysteria2", "tuic").contains(protocol))
+            throw new IllegalArgumentException("Unsupported proxy protocol");
+        if (!protocol.equals("shadowsocks") && profileJson == null) throw new IllegalArgumentException("Missing proxy settings");
         country = country == null ? "" : country;
         location = location == null ? "" : location;
     }
@@ -28,6 +37,31 @@ public record Server(String id, String host, int port, String method, String pas
         if (id != null && id.startsWith("morpheus:")) return "Morpheus";
         return "Shadowmere";
     }
+    public boolean usesUdpTransport() {return protocol.equals("hysteria2")||protocol.equals("tuic");}
+    public JsonObject outbound() {
+        if (!protocol.equals("shadowsocks")) {
+            JsonObject profile = JsonParser.parseString(profileJson).getAsJsonObject();
+            if(!profile.get("type").getAsString().equals(protocol)||!profile.get("server").getAsString().equals(host)
+                    ||profile.get("server_port").getAsInt()!=port)throw new IllegalArgumentException("Inconsistent proxy settings");
+            JsonObject tls=profile.getAsJsonObject("tls");
+            if(tls==null||!tls.has("enabled")||!tls.get("enabled").getAsBoolean()
+                    ||tls.has("insecure")&&tls.get("insecure").getAsBoolean())throw new IllegalArgumentException("Verified TLS protection is required");
+            if(profile.has("detour")||profile.has("routing_mark")||profile.has("bind_interface"))throw new IllegalArgumentException("Unsupported routing settings");
+            profile.remove("tag");
+            return profile;
+        }
+        JsonObject profile = new JsonObject();
+        profile.addProperty("type", "shadowsocks"); profile.addProperty("server", host);
+        profile.addProperty("server_port", port); profile.addProperty("method", method);
+        profile.addProperty("password", password); return profile;
+    }
+    public String protocolName() {
+        return switch (protocol) {
+            case "vless" -> profileJson!=null&&profileJson.contains("\"reality\":")?"VLESS / REALITY":"VLESS"; case "trojan" -> "Trojan";
+            case "hysteria2" -> "Hysteria 2"; case "tuic" -> "TUIC"; default -> "Shadowsocks";
+        };
+    }
+
     public String displayName() { return location.isBlank() ? host : location; }
     public String countryName() {
         return country.isBlank() ? "Other locations" : new Locale("", country).getDisplayCountry(Locale.ENGLISH);

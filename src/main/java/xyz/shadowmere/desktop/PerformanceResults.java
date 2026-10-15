@@ -14,7 +14,7 @@ public final class PerformanceResults {
     public synchronized void replaceAll(Map<String,ServerPerformance> values) {
         completed.clear(); testing.clear();
         values.forEach((key, value) -> {
-            if (value != null && (value.state() == ServerPerformance.State.VERIFIED || value.state() == ServerPerformance.State.FAILED))
+            if (value != null && value.completed())
                 completed.put(key, value);
         });
     }
@@ -24,7 +24,7 @@ public final class PerformanceResults {
         if (value.state() == ServerPerformance.State.TESTING) { testing.add(key); return; }
         testing.remove(key);
         if (value.state() == ServerPerformance.State.UNTESTED) completed.remove(key);
-        else completed.put(key, value);
+        else if(value.completed())completed.put(key, value);
     }
     public synchronized Map<Server,ServerPerformance> cancelTesting(List<Server> servers) {
         Map<Server,ServerPerformance> changed = new LinkedHashMap<>();
@@ -39,14 +39,26 @@ public final class PerformanceResults {
     public synchronized List<Server> pending(List<Server> servers, boolean force) {
         return servers.stream().filter(server -> {
             ServerPerformance result = completed.get(PerformanceCache.serverKey(server));
-            return force || result == null || !result.fresh();
+            return force || result == null || !result.fresh() || result.successful()&&!result.hasQuality();
         }).toList();
     }
     public synchronized List<Server> ranked(List<Server> servers) {
         return servers.stream().filter(server -> {
             ServerPerformance result = completed.get(PerformanceCache.serverKey(server));
             return result != null && result.successful() && result.completed();
-        }).sorted(Comparator.comparingLong(server -> completed.get(PerformanceCache.serverKey(server)).millis())).toList();
+        }).sorted(Comparator.comparing(server -> completed.get(PerformanceCache.serverKey(server)),ServerPerformance.bestFirst())).toList();
+    }
+    public synchronized List<Server> bandwidthCandidates(List<Server> servers,int limit){
+        if(limit<0)throw new IllegalArgumentException("Negative candidate limit");
+        // Choose a stable shortlist before checking its bandwidth cache. Otherwise every launch
+        // advances to another batch of unmeasured servers and eventually downloads through them all.
+        Comparator<ServerPerformance> shortlist=Comparator.comparingDouble(ServerPerformance::reliability).reversed()
+                .thenComparingLong(ServerPerformance::millis);
+        return servers.stream().filter(server -> {
+            ServerPerformance result=completed.get(PerformanceCache.serverKey(server));
+            return result!=null&&result.successful()&&result.hasQuality()&&result.fresh();
+        }).sorted(Comparator.comparing(server -> completed.get(PerformanceCache.serverKey(server)),shortlist))
+                .limit(limit).filter(server -> !completed.get(PerformanceCache.serverKey(server)).throughputFresh()).toList();
     }
     public synchronized List<Server> quickCandidates(List<Server> servers) {
         return servers.stream().filter(server -> {

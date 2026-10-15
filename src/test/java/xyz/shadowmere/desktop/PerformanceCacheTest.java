@@ -58,6 +58,46 @@ class PerformanceCacheTest {
     @Test void malformedAndOversizedCachesAreIgnored() throws Exception {
         var file = directory.resolve("server-performance.json"); var cache = new PerformanceCache(directory);
         Files.writeString(file, "{invalid"); assertTrue(cache.load(List.of(server("one"))).isEmpty());
-        Files.writeString(file, " ".repeat(8_388_609)); assertTrue(cache.load(List.of(server("one"))).isEmpty());
+        try(var output=Files.newByteChannel(file,StandardOpenOption.WRITE,StandardOpenOption.TRUNCATE_EXISTING)){output.position(40L*1024*1024);output.write(java.nio.ByteBuffer.wrap(new byte[]{0}));}
+        assertTrue(cache.load(List.of(server("one"))).isEmpty());
     }
+    @Test void upgradesVersionOneWithoutLosingLegacyResultsAndRoundTripsQuality() throws Exception {
+        Server server=server("legacy");String key=PerformanceCache.serverKey(server);Instant checked=Instant.now().minusSeconds(60);
+        var root=new com.google.gson.JsonObject();root.addProperty("version",1);
+        var item=new com.google.gson.JsonObject();item.addProperty("state","VERIFIED");item.addProperty("millis",42);item.addProperty("checkedAt",checked.toString());
+        var entries=new com.google.gson.JsonObject();entries.add(key,item);root.add("entries",entries);
+        Files.writeString(directory.resolve("server-performance.json"),root.toString());
+        var cache=new PerformanceCache(directory);var legacy=cache.load(List.of(server)).get(key);
+        assertEquals(1,legacy.attempts());assertFalse(legacy.hasQuality());assertEquals(-1,legacy.bytesPerSecond());
+        var quality=ServerPerformance.measured(List.of(100L,200L),3).withThroughput(500_000);
+        cache.save(Map.of(key,quality));
+        assertEquals(quality,cache.load(List.of(server)).get(key));
+        assertEquals(2,com.google.gson.JsonParser.parseString(Files.readString(directory.resolve("server-performance.json"))).getAsJsonObject().get("version").getAsInt());
+        cache.save(Map.of(key,new ServerPerformance(quality.state(),quality.millis(),quality.checkedAt(),quality.successes(),quality.attempts(),-1,Instant.EPOCH)));
+        assertEquals(quality,cache.load(List.of(server)).get(key),"Older snapshots must not erase a bandwidth checkpoint");
+    }
+
+    @Test void preservesShadowsocksKeysAndIncludesFullOtherProtocolSettings() throws Exception {
+        Server original=server("secret");
+        java.security.MessageDigest digest=java.security.MessageDigest.getInstance("SHA-256");
+        for(String part:List.of(original.host(),"8388",original.method(),original.password())){
+            byte[] bytes=part.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            digest.update(java.nio.ByteBuffer.allocate(4).putInt(bytes.length).array());digest.update(bytes);
+        }
+        assertEquals(java.util.HexFormat.of().formatHex(digest.digest()),PerformanceCache.serverKey(original));
+        Server first=new Server("a","same.example",443,"vless","auth","","","",true,"vless","{\"tls\":{\"server_name\":\"first.example\"}}");
+        Server changed=new Server("b","same.example",443,"vless","auth","","","",true,"vless","{\"tls\":{\"server_name\":\"second.example\"}}");
+        assertNotEquals(PerformanceCache.serverKey(first),PerformanceCache.serverKey(changed));
+    }
+
+    @Test void skipsMalformedQualityAndFutureDownloadTimestampsIndependently() throws Exception {
+        var cache=new PerformanceCache(directory);Server valid=server("quality"),bad=server("negative"),future=server("future-download");
+        String validKey=PerformanceCache.serverKey(valid);cache.save(Map.of(validKey,ServerPerformance.measured(List.of(10L,20L,30L),3)));
+        Path file=directory.resolve("server-performance.json");var root=com.google.gson.JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+        var entries=root.getAsJsonObject("entries");var negative=entries.getAsJsonObject(validKey).deepCopy();negative.addProperty("successes",-1);entries.add(PerformanceCache.serverKey(bad),negative);
+        var futureItem=entries.getAsJsonObject(validKey).deepCopy();futureItem.addProperty("bytesPerSecond",123);futureItem.addProperty("throughputAt",Instant.now().plusSeconds(60).toString());entries.add(PerformanceCache.serverKey(future),futureItem);
+        Files.writeString(file,root.toString());
+        assertEquals(Set.of(validKey),cache.load(List.of(valid,bad,future)).keySet());
+    }
+
 }

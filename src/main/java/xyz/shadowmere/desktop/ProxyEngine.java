@@ -31,8 +31,7 @@ public final class ProxyEngine implements AutoCloseable {
             String tag = "node-" + i++, inbound = "in-" + tag;
             inbounds.add(new Gson().toJsonTree(Map.of("type", "mixed", "tag", inbound, "listen", "127.0.0.1", "listen_port", binding.getKey())));
             Server s = binding.getValue();
-            outbounds.add(new Gson().toJsonTree(Map.of("type", "shadowsocks", "tag", tag, "server", s.host(),
-                    "server_port", s.port(), "method", s.method(), "password", s.password())));
+            JsonObject outbound=s.outbound();outbound.addProperty("tag",tag);outbounds.add(outbound);
             rules.add(new Gson().toJsonTree(Map.of("inbound", List.of(inbound), "outbound", tag, "action", "route")));
         }
         root.add("inbounds", inbounds); root.add("outbounds", outbounds);

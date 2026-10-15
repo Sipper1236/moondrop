@@ -18,7 +18,7 @@ class PerformanceResultsTest {
             PerformanceCache.serverKey(stale), new ServerPerformance(ServerPerformance.State.VERIFIED, 1, Instant.now().minusSeconds(7*86400+1)),
             PerformanceCache.serverKey(failed), ServerPerformance.failed()));
         List<Server> all = List.of(slow, stale, fast, failed, unknown);
-        assertEquals(List.of(stale, unknown), results.pending(all, false));
+        assertEquals(List.of(slow, stale, fast, unknown), results.pending(all, false));
         assertEquals(all, results.pending(all, true));
         assertEquals(List.of(stale, fast, slow), results.ranked(all));
     }
@@ -31,7 +31,7 @@ class PerformanceResultsTest {
     }
     @Test void forcedRetestKeepsCompletedCacheAndCancellationRestoresIt() {
         var results = new PerformanceResults(); Server server = server(1);
-        var previous = ServerPerformance.verified(123); results.record(server, previous);
+        var previous = ServerPerformance.measured(List.of(123L,123L,123L),3); results.record(server, previous);
         results.record(server, ServerPerformance.testing());
         assertEquals(ServerPerformance.State.TESTING, results.get(server).state());
         assertEquals(previous, results.snapshot().get(PerformanceCache.serverKey(server)));
@@ -55,4 +55,32 @@ class PerformanceResultsTest {
         results.snapshot().clear(); assertFalse(results.isEmpty());
         results.replaceAll(Map.of()); assertTrue(results.isEmpty()); assertNull(results.get(server));
     }
+    @Test void fullQualityRankingAndBandwidthCandidatesReuseIndependentMeasurements() {
+        var results=new PerformanceResults();Server reliable=server(1),flaky=server(2),legacy=server(3),downloaded=server(4),failed=server(5);
+        results.record(reliable,ServerPerformance.measured(List.of(100L,110L,120L),3));
+        results.record(flaky,ServerPerformance.measured(List.of(1L),3));
+        results.record(legacy,ServerPerformance.verified(1));
+        results.record(downloaded,ServerPerformance.measured(List.of(100L,110L,120L),3).withThroughput(1_000_000));
+        results.record(failed,ServerPerformance.failed());
+        List<Server> all=List.of(legacy,flaky,reliable,downloaded,failed);
+        assertEquals(List.of(downloaded,reliable,flaky,legacy),results.ranked(all));
+        assertEquals(List.of(reliable),results.bandwidthCandidates(all,1));
+        assertEquals(List.of(reliable,flaky),results.bandwidthCandidates(all,10));
+        assertEquals(List.of(legacy),results.pending(all,false));
+    }
+
+    @Test void bandwidthShortlistDoesNotRotateToUnmeasuredServersOnEveryRestart(){
+        var results=new PerformanceResults();List<Server> all=new ArrayList<>();
+        for(int i=1;i<=8;i++){
+            Server server=server(i);all.add(server);
+            var quality=ServerPerformance.measured(List.of(i*10L,i*10L,i*10L),3);
+            results.record(server,i<=5?quality.withThroughput(1_000_000):quality);
+        }
+        assertTrue(results.bandwidthCandidates(all,5).isEmpty(),"Cached shortlist must not trigger downloads through the remaining feed");
+        Server expired=all.get(2);var previous=results.get(expired);
+        results.record(expired,new ServerPerformance(previous.state(),previous.millis(),previous.checkedAt(),previous.successes(),previous.attempts(),previous.bytesPerSecond(),Instant.now().minusSeconds(8*86400)));
+        assertEquals(List.of(expired),results.bandwidthCandidates(all,5));
+        assertTrue(results.bandwidthCandidates(all,0).isEmpty());
+    }
+
 }

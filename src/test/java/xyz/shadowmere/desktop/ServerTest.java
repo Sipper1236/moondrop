@@ -32,6 +32,17 @@ class ServerTest {
         for(String method:new String[]{"none","dummy","chacha20","unknown"})
             assertFalse(Server.supportsEncryptedMethod(method));
     }
+    @Test void outboundCannotBeReplacedWithPlaintextOrDirectRouting() {
+        Server secure=ProxyLinks.parse("test","trojan://secret@example.test:443?sni=example.test","","","",true);
+        for(String field:new String[]{"type","enabled","insecure","detour"}) {
+            var profile=secure.outbound();
+            if(field.equals("type"))profile.addProperty("type","direct");
+            else if(field.equals("detour"))profile.addProperty("detour","direct");
+            else profile.getAsJsonObject("tls").addProperty(field,field.equals("insecure"));
+            Server altered=new Server(secure.id(),secure.host(),secure.port(),secure.method(),secure.password(),secure.country(),secure.location(),"",true,secure.protocol(),profile.toString());
+            assertThrows(IllegalArgumentException.class,altered::outbound);
+        }
+    }
     @Test void mapsDesktopArchitectureNames() {
         assertEquals("darwin-arm64",CoreInstaller.platform("Mac OS X","aarch64"));
         assertEquals("darwin-amd64",CoreInstaller.platform("Mac OS X","x86_64"));

@@ -35,6 +35,26 @@ class ShadowsocksFeedTest {
         assertEquals(1,report.servers().size());assertEquals("Morpheus",report.servers().get(0).sourceName());
         assertEquals(1,report.unsupported());assertEquals(1,report.malformed());
     }
+    @Test void protectedFeedsKeepVerifiedTlsProfilesAndRejectDowngrades() throws Exception {
+        String uuid="bf000d23-0752-40b4-affe-68f7707a9661";
+        String vless="vless://"+uuid+"@example.test:443?security=tls&sni=cert.test";
+        var report=ShadowsocksFeed.parseProtectedReport(vless+"#%F0%9F%87%A8%F0%9F%87%A6%20Example\n"+
+                "vless://"+uuid+"@example.test:443?sni=cert.test&security=tls#Duplicate\n"+
+                "trojan://secret@example.test:443?sni=cert.test\n"+
+                "hy2://secret@example.test:443?sni=cert.test\n"+
+                "tuic://"+uuid+":secret@example.test:443?sni=cert.test\n"+
+                "trojan://secret@example.test:443?insecure=1\n"+
+                "vless://"+uuid+"@example.test:443?security=none\nhttp://example.test:8080\nvmess://not-supported", "morpheus:");
+        assertEquals(4,report.servers().size());assertEquals(1,report.duplicates());
+        assertEquals(Set.of("vless","trojan","hysteria2","tuic"),report.servers().stream().map(Server::protocol).collect(java.util.stream.Collectors.toSet()));
+        assertEquals("CA",report.servers().get(0).country());
+        for(Server server:report.servers()) {
+            assertEquals("Morpheus",server.sourceName());
+            assertTrue(server.outbound().getAsJsonObject("tls").get("enabled").getAsBoolean());
+            assertFalse(server.outbound().getAsJsonObject("tls").get("insecure").getAsBoolean());
+            assertEquals(server.protocol().equals("hysteria2")||server.protocol().equals("tuic"),server.usesUdpTransport());
+        }
+    }
     @Test void dedupUsesCredentialsAndIgnoresLabelChanges() throws Exception {
         var servers = ShadowsocksFeed.parse(link("aes-256-gcm", "password-one", "first") + "\n" +
             link("aes-256-gcm", "password-one", "second") + "\n" + link("aes-256-gcm", "password-two", "third"));

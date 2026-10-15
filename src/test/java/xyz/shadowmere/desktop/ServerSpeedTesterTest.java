@@ -47,7 +47,7 @@ class ServerSpeedTesterTest {
         tester.test(servers, Path.of("fake"), Path.of("fake"), updates::add, ignored -> { });
         assertEquals(19, updates.stream().filter(u -> u.performance().state() == ServerPerformance.State.TESTING).count());
         assertEquals(18, updates.stream().filter(u -> u.performance().successful()).count());
-        assertEquals(18, probes.get()); assertEquals(3, opened.get()); assertEquals(opened.get(), closed.get());
+        assertEquals(54, probes.get()); assertEquals(3, opened.get()); assertEquals(opened.get(), closed.get());
     }
     @Test void invalidBatchFallsBackAndDoesNotHideWorkingServers() throws Exception {
         var tester = new ServerSpeedTester(new ServerSpeedTester.Backend() {
@@ -62,5 +62,29 @@ class ServerSpeedTesterTest {
         tester.test(List.of(server(0), server(1), server(2)), Path.of("fake"), Path.of("fake"), updates::add, ignored -> { });
         assertEquals(2, updates.stream().filter(u -> u.performance().successful()).count());
         assertEquals(1, updates.stream().filter(u -> u.performance().state() == ServerPerformance.State.FAILED).count());
+    }
+    @Test void throughputIsSequentialBoundedAndPreservesQualityAfterFailure() throws Exception {
+        AtomicInteger opened = new AtomicInteger(), closed = new AtomicInteger(), downloads = new AtomicInteger();
+        var tester = new ServerSpeedTester(new ServerSpeedTester.Backend() {
+            public boolean reachable(Server s) { fail("Throughput must use supplied candidates only"); return false; }
+            public AutoCloseable start(Path b, Path d, Map<Integer,Server> bindings) {
+                assertEquals(1, bindings.size()); assertEquals(opened.get(), closed.get());
+                opened.incrementAndGet(); return () -> closed.incrementAndGet();
+            }
+            public long probe(int port) { fail("Quality must be preserved"); return 0; }
+            public long download(int port) throws Exception {
+                if (downloads.incrementAndGet() == 1) throw new java.io.IOException("offline");
+                return 5000;
+            }
+        });
+        Map<Server,ServerPerformance> candidates = new LinkedHashMap<>();
+        var quality = ServerPerformance.measured(List.of(10L, 20L, 30L), 3);
+        for (int i = 0; i < 8; i++) candidates.put(server(i), quality);
+        List<ServerSpeedTester.Update> updates = new ArrayList<>();
+        tester.testThroughput(candidates, Path.of("fake"), Path.of("fake"), updates::add, ignored -> { });
+        assertEquals(5, downloads.get()); assertEquals(opened.get(), closed.get()); assertEquals(5, updates.size());
+        assertEquals(0, updates.get(0).performance().bytesPerSecond());
+        assertEquals(3, updates.get(0).performance().successes());
+        assertEquals(20, updates.get(0).performance().millis());
     }
 }

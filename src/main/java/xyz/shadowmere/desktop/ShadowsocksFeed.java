@@ -10,7 +10,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
-/** Imports encrypted, supported Shadowsocks entries from independent public subscriptions. */
+/** Imports encrypted subscriptions; protected transports can be enabled for additional feeds. */
 public final class ShadowsocksFeed {
     private static final int MAX_BYTES = 8 * 1024 * 1024;
     private static final Set<String> COUNTRIES = Set.of(Locale.getISOCountries());
@@ -19,6 +19,7 @@ public final class ShadowsocksFeed {
     private final Transport transport;
     private final Duration timeout;
     private final String prefix;
+    private final boolean protectedProtocols;
 
     public static ShadowsocksFeed gfp() {
         return new ShadowsocksFeed(URI.create("https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/ss.txt"), "gfp:");
@@ -29,8 +30,10 @@ public final class ShadowsocksFeed {
     public static ShadowsocksFeed morpheus() {
         return new ShadowsocksFeed(URI.create("https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt"), "morpheus:");
     }
-    private ShadowsocksFeed(URI endpoint, String prefix) {
-        this.prefix=prefix;
+    public static ShadowsocksFeed protectedFeed(URI endpoint,String prefix) {return new ShadowsocksFeed(endpoint,prefix,true);}
+    private ShadowsocksFeed(URI endpoint,String prefix) {this(endpoint,prefix,false);}
+    private ShadowsocksFeed(URI endpoint, String prefix, boolean protectedProtocols) {
+        this.prefix=prefix;this.protectedProtocols=protectedProtocols;
         HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
             .followRedirects(HttpClient.Redirect.NORMAL).build();
         transport = () -> {
@@ -39,13 +42,13 @@ public final class ShadowsocksFeed {
             var response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() != 200) {
                 response.body().close();
-                throw new IOException("Shadowsocks feed returned HTTP " + response.statusCode() + ". Try refreshing later.");
+                throw new IOException("Proxy feed returned HTTP " + response.statusCode() + ". Try refreshing later.");
             }
             return response.body();
         };
         timeout = Duration.ofSeconds(25);
     }
-    ShadowsocksFeed(Transport transport, Duration timeout) { this.transport = transport; this.timeout = timeout; this.prefix="gfp:"; }
+    ShadowsocksFeed(Transport transport, Duration timeout) { this.transport = transport; this.timeout = timeout; this.prefix="gfp:";this.protectedProtocols=false; }
 
     public List<Server> fetch() throws Exception {
         ExecutorService reader = Executors.newSingleThreadExecutor(work -> {
@@ -57,20 +60,20 @@ public final class ShadowsocksFeed {
                 active.set(input);
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
                 byte[] bytes = input.readNBytes(MAX_BYTES + 1);
-                if (bytes.length > MAX_BYTES) throw new IOException("Shadowsocks feed exceeded the 8 MiB download limit.");
-                List<Server> servers = parseReport(new String(bytes, StandardCharsets.UTF_8),prefix).servers();
-                if (servers.isEmpty()) throw new IOException("Shadowsocks feed returned no compatible Shadowsocks servers. Try refreshing later.");
+                if (bytes.length > MAX_BYTES) throw new IOException("Proxy feed exceeded the 8 MiB download limit.");
+                List<Server> servers = parseReport(new String(bytes, StandardCharsets.UTF_8),prefix,protectedProtocols).servers();
+                if (servers.isEmpty()) throw new IOException("Proxy feed returned no compatible protected proxies. Try refreshing later.");
                 return servers;
             }
         });
         try { return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS); }
-        catch (TimeoutException failure) { throw new IOException("Shadowsocks feed took too long to respond. Try refreshing later."); }
+        catch (TimeoutException failure) { throw new IOException("Proxy feed took too long to respond. Try refreshing later."); }
         catch (InterruptedException cancellation) { Thread.currentThread().interrupt(); throw cancellation; }
         catch (ExecutionException failure) {
             Throwable cause = failure.getCause();
             if (cause instanceof InterruptedException cancellation) { Thread.currentThread().interrupt(); throw cancellation; }
-            if (cause instanceof IOException io && io.getMessage() != null && io.getMessage().startsWith("Shadowsocks feed")) throw io;
-            throw new IOException("Could not load the Shadowsocks feed. Check your connection and try refreshing later.");
+            if (cause instanceof IOException io && io.getMessage() != null && io.getMessage().startsWith("Proxy feed")) throw io;
+            throw new IOException("Could not load the Proxy feed. Check your connection and try refreshing later.");
         } finally {
             future.cancel(true);
             InputStream input = active.get();
@@ -82,15 +85,17 @@ public final class ShadowsocksFeed {
     record ParseReport(List<Server> servers, int malformed, int unsupported, int plugins, int duplicates) { }
     static List<Server> parse(String text) throws IOException { return parseReport(text).servers(); }
     static ParseReport parseReport(String text) throws IOException {return parseReport(text,"gfp:");}
-    static ParseReport parseReport(String text,String prefix) throws IOException {
-        if (text.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IOException("Shadowsocks feed exceeded the 8 MiB download limit.");
+    static ParseReport parseReport(String text,String prefix) throws IOException {return parseReport(text,prefix,false);}
+    static ParseReport parseProtectedReport(String text,String prefix) throws IOException {return parseReport(text,prefix,true);}
+    private static ParseReport parseReport(String text,String prefix,boolean protectedProtocols) throws IOException {
+        if (text.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IOException("Proxy feed exceeded the 8 MiB download limit.");
         Map<String,Server> unique = new LinkedHashMap<>();
         int malformed = 0, unsupported = 0, plugins = 0, duplicates = 0;
         for (String raw : text.split("\\R")) {
             String line = raw.strip();
             if (line.isEmpty() || line.startsWith("#")) continue;
             if (line.startsWith("\uFEFF")) line = line.substring(1);
-            if (!line.startsWith("ss://")) { malformed++; continue; }
+            if (!protectedProtocols&&!line.startsWith("ss://")) { malformed++; continue; }
             try {
                 int fragmentAt = line.indexOf('#');
                 String connection = fragmentAt < 0 ? line : line.substring(0, fragmentAt);
@@ -99,15 +104,15 @@ public final class ShadowsocksFeed {
                     String query = URLDecoder.decode(connection.substring(queryAt + 1), StandardCharsets.UTF_8);
                     if (Pattern.compile("(?i)(?:^|&)plugin(?:=|$)").matcher(query).find()) { plugins++; continue; }
                 }
-                Server parsed = Server.parse("", connection, "", "", "", true);
-                if (!Server.supportsEncryptedMethod(parsed.method())) { unsupported++; continue; }
-                if (!validKey(parsed)) { malformed++; continue; }
+                Server parsed = protectedProtocols?ProxyLinks.parse("",connection,"","","",true):Server.parse("", connection, "", "", "", true);
+                if (parsed.protocol().equals("shadowsocks")&&!Server.supportsEncryptedMethod(parsed.method())) { unsupported++; continue; }
+                if (parsed.protocol().equals("shadowsocks")&&!validKey(parsed)) { malformed++; continue; }
                 String key = PerformanceCache.serverKey(parsed);
                 if (unique.containsKey(key)) { duplicates++; continue; }
                 String label = fragmentAt < 0 ? "" : URLDecoder.decode(line.substring(fragmentAt + 1).replace("+", "%2B"), StandardCharsets.UTF_8);
                 String country = flagCountry(label);
                 label = sanitize(label, parsed.password());
-                unique.put(key, new Server(prefix + key, parsed.host(), parsed.port(), parsed.method(), parsed.password(), country, label, "", true));
+                unique.put(key, new Server(prefix + key, parsed.host(), parsed.port(), parsed.method(), parsed.password(), country, label, "", true, parsed.protocol(), parsed.profileJson()));
             } catch (RuntimeException invalid) { malformed++; }
         }
         return new ParseReport(List.copyOf(unique.values()), malformed, unsupported, plugins, duplicates);

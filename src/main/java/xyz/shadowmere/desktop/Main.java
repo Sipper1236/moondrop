@@ -135,7 +135,7 @@ public final class Main implements AppWindow.Actions {
     @Override public void refresh() {submit("Refreshing servers",this::loadServers);}
     private void loadServers() throws Exception {
         cancelSpeedTests();
-        if(!connected)ui(() -> window.setConnection("Loading servers","Getting encrypted Shadowsocks locations from four sources…",false));
+        if(!connected)ui(() -> window.setConnection("Loading servers","Getting encrypted proxy locations from four sources…",false));
         ServerCatalog.Result catalog=new ServerCatalog().fetch();
         List<Server> fresh=catalog.servers(); servers=fresh;
         nearbyCountry=proximity.locate().orElse(null);
@@ -149,7 +149,7 @@ public final class Main implements AppWindow.Actions {
             for(Server server:fresh) {ServerPerformance p=saved.get(PerformanceCache.serverKey(server));if(p!=null)window.setPerformance(server,p);}
             if(!connected)window.setConnection("Disconnected","Choose Quick Connect or select a location.",false);
         });
-        log("Updated · "+fresh.size()+" Shadowsocks servers");
+        log("Updated · "+fresh.size()+" protected proxy servers");
         catalog.counts().forEach((source,count) -> log(source+" · "+count+" unique servers"));
         catalog.warnings().forEach(this::log);
         startSpeedTests(false);
@@ -166,6 +166,8 @@ public final class Main implements AppWindow.Actions {
             cancelSpeedTests();
             List<Server> ranked=performance.ranked(servers).stream().limit(3).toList();
             for(Server cached:ranked) {
+                ServerPerformance quality=performance.snapshot().get(PerformanceCache.serverKey(cached));
+                if(quality==null||!quality.hasQuality()||!quality.throughputFresh())break;
                 checkCancelled();
                 ProxyEngine.ensurePortFree(ProxyEngine.PORT);
                 try {connectNow(cached,useSystem,null);log("Used cached server ranking; connection verified again.");return;}
@@ -179,9 +181,9 @@ public final class Main implements AppWindow.Actions {
             if(candidates.isEmpty())throw new IOException("No recently tested servers are working. Use Retest speeds or refresh the server list.");
             QuickConnect.Result result=new QuickConnect().find(candidates,installer.binary(),data,progress -> {
                 log(progress); ui(() -> window.setConnection("Finding a server",progress,false));
-            },update -> recordPerformance(update.server(),update.performance()),nearbyCountry);
+            },update -> recordPerformance(update.server(),update.performance()),nearbyCountry,performance.snapshot());
             checkCancelled();
-            log("Fastest of "+result.tested()+" tested · "+result.server().displayName()+" · "+result.millis()+" ms HTTPS");
+            log("Best of "+result.tested()+" tested · "+result.server().displayName()+" · median HTTPS "+result.millis()+" ms");
             connectNow(result.server(),useSystem,result.millis());
             } finally {if(!closing.get()&&!Thread.currentThread().isInterrupted())startSpeedTests(false);}
         });
@@ -195,16 +197,24 @@ public final class Main implements AppWindow.Actions {
         cancelSpeedTests();
         List<Server> pending=ServerProximity.prioritize(performance.pending(servers,force),nearbyCountry);
         int reused=servers.size()-pending.size();
-        if(pending.isEmpty()) {ui(() -> window.setSpeedTesting(false,"Using "+reused+" saved checks · 7-day cache"));return;}
+        if(pending.isEmpty()&&performance.bandwidthCandidates(servers,5).isEmpty()) {ui(() -> window.setSpeedTesting(false,"Using "+reused+" saved checks · 7-day cache"));return;}
         int generation=speedGeneration.incrementAndGet();speedTesting=true;
         ui(() -> window.setSpeedTesting(true,reused+" cached · "+pending.size()+" checks remaining…"));
         speedTask=speedWorker.submit(() -> {
             try {
                 prepareEngine();
                 if(speedGeneration.get()!=generation||closing.get()||Thread.currentThread().isInterrupted())return;
-                new ServerSpeedTester().test(pending,installer.binary(),data,update -> {
+                ServerSpeedTester tester=new ServerSpeedTester();
+                java.util.function.Consumer<ServerSpeedTester.Update> record=update -> {
                     synchronized(speedLock) {if(speedGeneration.get()==generation&&!closing.get())recordPerformance(update.server(),update.performance());}
-                },progress -> ui(() -> {if(speedGeneration.get()==generation)window.setSpeedTesting(true,reused+" cached · "+progress);}));
+                };
+                java.util.function.Consumer<String> progress=text -> ui(() -> {if(speedGeneration.get()==generation)window.setSpeedTesting(true,reused+" cached · "+text);});
+                tester.test(pending,installer.binary(),data,record,progress);
+                if(speedGeneration.get()!=generation||closing.get()||Thread.currentThread().isInterrupted())return;
+                Map<Server,ServerPerformance> downloads=new java.util.LinkedHashMap<>();
+                Map<String,ServerPerformance> saved=performance.snapshot();
+                for(Server candidate:performance.bandwidthCandidates(servers,5))downloads.put(candidate,saved.get(PerformanceCache.serverKey(candidate)));
+                tester.testThroughput(downloads,installer.binary(),data,record,progress);
             } catch(InterruptedException|CancellationException ignored) {Thread.currentThread().interrupt();}
             catch(Exception e) {if(speedGeneration.get()==generation&&!closing.get())log("Latency checks: "+safeMessage(e));}
             finally {
@@ -268,7 +278,8 @@ public final class Main implements AppWindow.Actions {
             try {ms=ProxyEngine.probe(ProxyEngine.PORT);}
             catch(IOException e) {if(!Thread.currentThread().isInterrupted()){recordPerformance(server,ServerPerformance.failed());savePerformance();}throw e;}
             checkCancelled();
-            recordPerformance(server,ServerPerformance.verified(ms));savePerformance();
+            ServerPerformance saved=performance.snapshot().get(PerformanceCache.serverKey(server));
+            recordPerformance(server,saved!=null&&saved.successful()&&saved.hasQuality()?saved:ServerPerformance.verified(ms));savePerformance();
             if(useSystem) system.enable("127.0.0.1",ProxyEngine.PORT);
             checkCancelled(); connected=true;
             String detail=(useSystem?"System proxy":"Local proxy")+" · HTTPS "+(measured==null?ms:measured)+" ms";

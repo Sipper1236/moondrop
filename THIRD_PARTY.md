@@ -11,9 +11,11 @@ The shaded JAR includes dependency license/notice files under META-INF. Moondrop
 
 - **flag-icons**, lipis and contributors — MIT, https://github.com/lipis/flag-icons, revision `086f7e97d657358203916dbe84f61c2bccaa81eb`. Bundled 4:3 SVG flags; license in `src/main/resources/flags/LICENSE.txt`.
 
-- **GetFreeProxy / gfpcom free-proxy-list** — MIT, https://github.com/gfpcom/free-proxy-list. Public Shadowsocks subscription fetched at runtime; no upstream code or server list is bundled.
-- **V2rayCollector**, MhdiTaheri — MIT, https://github.com/MhdiTaheri/V2rayCollector. Public Shadowsocks subscription fetched at runtime; no upstream code or server list is bundled.
-- **morpheusadam/v2ray-config** — public Shadowsocks bundle fetched at runtime from https://github.com/morpheusadam/v2ray-config. No upstream code or server list is bundled.
+- **GetFreeProxy / gfpcom free-proxy-list** — MIT, https://github.com/gfpcom/free-proxy-list. Public Shadowsocks, Hysteria2, and TUIC subscriptions fetched at runtime; no upstream code or server list is bundled.
+- **V2rayCollector**, MhdiTaheri — MIT, https://github.com/MhdiTaheri/V2rayCollector. Public Shadowsocks and mixed-protocol subscriptions fetched at runtime; no upstream code or server list is bundled.
+- **morpheusadam/v2ray-config** — public Shadowsocks, VLESS, Trojan, Hysteria2, and TUIC bundles fetched at runtime from https://github.com/morpheusadam/v2ray-config. No upstream code or server list is bundled.
 
 - **Google DSPL country coordinates** — BSD-3-Clause, https://github.com/google/dspl/blob/master/samples/google/canonical/countries.csv. Bundled country-center data for approximate proximity ordering; license in `src/main/resources/geography/LICENSE.txt`.
 - **IPWHOIS** — https://ipwhois.io/documentation. Runtime HTTPS lookup of approximate country; only the country code and lookup time are cached, without an IP address.
+
+- **Cloudflare Speed Test** — https://speed.cloudflare.com/. Its HTTPS download endpoint (`/__down?bytes=1048576`) is requested at runtime for bounded connection-speed estimates. No Cloudflare SDK or source code is copied or bundled.

@@ -48,7 +48,7 @@ public final class AppWindow extends JFrame {
     private final JTextField search = new JTextField();
     private final JComboBox<String> country = new JComboBox<>(new String[]{"All locations"});
     private final Map<Server, ServerPerformance> performance = new HashMap<>();
-    private final JComboBox<String> sort = new JComboBox<>(new String[]{"Fastest first", "Country name"});
+    private final JComboBox<String> sort = new JComboBox<>(new String[]{"Best connection", "Country name"});
     private final JButton retest = new JButton("Retest speeds");
     private final JButton update = new JButton("Check for updates");
     private final JLabel updateStatus = label("", MUTED, 11);
@@ -96,7 +96,7 @@ public final class AppWindow extends JFrame {
         });filters.add(country); filters.add(Box.createVerticalStrut(8)); sort.setMaximumSize(new Dimension(Integer.MAX_VALUE,36)); filters.add(sort); sort.addActionListener(e -> filter()); browser.add(filters,BorderLayout.NORTH);
         servers.setBackground(PANEL); servers.setForeground(TEXT); servers.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); servers.setFixedCellHeight(69); servers.setFixedCellWidth(280); servers.setCellRenderer(new ServerRenderer());
         JScrollPane scroll = new JScrollPane(servers); scroll.setBorder(BorderFactory.createEmptyBorder()); scroll.getViewport().setBackground(PANEL); browser.add(scroll,BorderLayout.CENTER);
-        JPanel listFooter = vertical(); JPanel counts = new JPanel(new BorderLayout(8,0)); counts.setOpaque(false); counts.add(count,BorderLayout.CENTER); retest.setToolTipText("Retest every server, including cached results. Use after changing networks or routes. Completed checks are saved even if testing stops."); retest.setMargin(new Insets(5,8,5,8)); retest.addActionListener(e -> actions.retestSpeeds()); counts.add(retest,BorderLayout.EAST); counts.setAlignmentX(Component.LEFT_ALIGNMENT); listFooter.add(counts); listFooter.add(Box.createVerticalStrut(6)); listFooter.add(speedProgress); speedProgress.setToolTipText("Verified HTTPS round-trip latency in milliseconds; lower is better. Results, including failures, are reused for 7 days and saved across restarts. Only missing, changed or expired servers are checked automatically."); browser.add(listFooter,BorderLayout.SOUTH);
+        JPanel listFooter = vertical(); JPanel counts = new JPanel(new BorderLayout(8,0)); counts.setOpaque(false); counts.add(count,BorderLayout.CENTER); retest.setToolTipText("Retest every server, including cached results. Use after changing networks or routes. Completed checks are saved even if testing stops."); retest.setMargin(new Insets(5,8,5,8)); retest.addActionListener(e -> actions.retestSpeeds()); counts.add(retest,BorderLayout.EAST); counts.setAlignmentX(Component.LEFT_ALIGNMENT); listFooter.add(counts); listFooter.add(Box.createVerticalStrut(6)); listFooter.add(speedProgress); speedProgress.setToolTipText("Three HTTPS checks measure reliability and median latency. The best five candidates receive a bounded 1 MiB download test. Completed results are reused for 7 days; scans resume missing checks."); browser.add(listFooter,BorderLayout.SOUTH);
         JPanel right = new JPanel(new BorderLayout(0,18)); right.setOpaque(false); body.add(right);
         JPanel connection = panel(new BorderLayout(0,10)); connection.setBorder(new EmptyBorder(16,20,16,20)); right.add(connection,BorderLayout.NORTH);
         JPanel state = vertical(); state.add(label("YOUR CONNECTION",MUTED,11)); state.add(Box.createVerticalStrut(10)); state.add(status); state.add(Box.createVerticalStrut(8)); state.add(detail); connection.add(state,BorderLayout.NORTH);
@@ -116,7 +116,7 @@ public final class AppWindow extends JFrame {
         all=List.copyOf(list); searchText.clear(); countryNames.clear(); countryCodes.clear();
         for(Server server:all){
             String name=server.countryName(); countryNames.put(server,name);
-            searchText.put(server,(name+" "+server.displayName()+" "+server.host()+" "+source(server)).toLowerCase(Locale.ROOT));
+            searchText.put(server,(name+" "+server.displayName()+" "+server.host()+" "+source(server)+" "+server.protocolName()+" "+server.protocol()).toLowerCase(Locale.ROOT));
             countryCodes.putIfAbsent(name,server.country());
         }
         Object previous=country.getSelectedItem();
@@ -145,7 +145,7 @@ public final class AppWindow extends JFrame {
         JViewport viewport=(JViewport)servers.getParent(); Point view=viewport.getViewPosition();
         String q=search.getText().strip().toLowerCase(Locale.ROOT); Object c=country.getSelectedItem();
         Comparator<Server> ordering = sort.getSelectedIndex()==0
-                ? Comparator.comparingInt(this::performanceRank).thenComparingLong(s -> performanceFor(s).successful()?performanceFor(s).millis():Long.MAX_VALUE).thenComparing(countryNames::get)
+                ? Comparator.comparingInt(this::performanceRank).thenComparing(this::performanceFor,ServerPerformance.bestFirst()).thenComparing(countryNames::get)
                 : Comparator.comparing(countryNames::get);
         List<Server> visible=all.stream().filter(s -> (c==null||c.equals("All locations")||c.equals(countryNames.get(s))) && searchText.get(s).contains(q)).sorted(ordering).toList();
         rebuilding=true;
@@ -207,10 +207,10 @@ public final class AppWindow extends JFrame {
     private final class ServerRenderer extends JPanel implements ListCellRenderer<Server>{
         private final JLabel title=label("",TEXT,14), sub=label("",MUTED,11), icon=label("",MINT,12), latency=label("",MINT,12);
         ServerRenderer(){setLayout(new BorderLayout(12,0));setBorder(new EmptyBorder(10,12,10,12)); JPanel t=vertical();t.add(title);t.add(Box.createVerticalStrut(5));t.add(sub);add(icon,BorderLayout.WEST);add(t,BorderLayout.CENTER);latency.setHorizontalAlignment(SwingConstants.RIGHT);add(latency,BorderLayout.EAST);}
-        public Component getListCellRendererComponent(JList<? extends Server> list,Server s,int index,boolean selected,boolean focus){setBackground(selected?new Color(44,66,65):PANEL);icon.setText(null);icon.setIcon(FlagIcons.get(s.country()));title.setText(s.countryName());sub.setText(source(s)+" · "+s.displayName());
+        public Component getListCellRendererComponent(JList<? extends Server> list,Server s,int index,boolean selected,boolean focus){setBackground(selected?new Color(44,66,65):PANEL);icon.setText(null);icon.setIcon(FlagIcons.get(s.country()));title.setText(s.countryName());sub.setText(s.protocolName()+" · "+source(s)+" · "+s.displayName());
             ServerPerformance result=performanceFor(s); latency.setText(result.label());
             latency.setForeground(result.successful()?(result.fresh()?MINT:MUTED):result.state()==ServerPerformance.State.FAILED?new Color(220,143,136):MUTED);
-            String tooltip=result.state()==ServerPerformance.State.UNTESTED?"Latency has not been tested yet":result.state()==ServerPerformance.State.TESTING?"Checking verified HTTPS round-trip latency…": "Latency checked "+DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(result.checkedAt())+(result.fresh()?" · cached":" · saved, awaiting recheck")+". Lower milliseconds is better.";
+            String tooltip=result.state()==ServerPerformance.State.UNTESTED?"Latency has not been tested yet":result.state()==ServerPerformance.State.TESTING?"Checking verified HTTPS round-trip latency…": "Latency checked "+DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(result.checkedAt())+(result.fresh()?" · cached":" · saved, awaiting recheck")+". "+(result.attempts()>0?result.successes()+"/"+result.attempts()+" HTTPS checks succeeded; latency is the median of successful checks. ":"")+(result.bytesPerSecond()>0?"Download estimate "+String.format(Locale.ROOT,"%.1f Mb/s",result.bytesPerSecond()*8.0/1_000_000):result.bytesPerSecond()==0?"Download test failed.":"Download has not been measured.");
             setToolTipText(tooltip);return this;}
     }
     /** Replaces a full feed in a bounded number of events, rather than one event per row. */
