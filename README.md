@@ -8,11 +8,11 @@ A small, independent Java desktop client for protected Shadowsocks, VLESS, Troja
 
 ## Install
 
-Download from the [Moondrop v0.6.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.0), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
+Download from the [Moondrop v0.6.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.1), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
 
 ### Windows installer
 
-1. Under **Assets**, download **Moondrop-0.6.0-Windows-x64.exe** for a Windows x64 PC.
+1. Under **Assets**, download **Moondrop-0.6.1-Windows-x64.exe** for a Windows x64 PC.
 2. Run the installer. It installs for your user account and creates Start menu and desktop shortcuts.
 3. Open **Moondrop** from either shortcut.
 
@@ -21,7 +21,7 @@ This release is unsigned. Windows SmartScreen or Microsoft Defender may warn abo
 ### macOS installer
 
 1. Open Apple menu → **About This Mac** to check your chip.
-2. Download **Moondrop-0.6.0-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.6.0-macOS-x64.dmg** for Intel.
+2. Download **Moondrop-0.6.1-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.6.1-macOS-x64.dmg** for Intel.
 3. Open the DMG and drag **Moondrop.app** into **Applications**. If that folder is not writable by your account, use `~/Applications` instead.
 4. Open Moondrop from Applications, then eject the installer disk.
 
@@ -114,7 +114,7 @@ java -version
 
 #### 2. Download the portable archive
 
-1. Open the [Moondrop v0.6.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.0). This is a prerelease.
+1. Open the [Moondrop v0.6.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.1). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 
@@ -273,7 +273,7 @@ mvn package
 ./scripts/package-windows.ps1
 ```
 
-The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.6.0-Windows-x64.exe`, `Moondrop-0.6.0-macOS-arm64.dmg`, and `Moondrop-0.6.0-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
+The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.6.1-Windows-x64.exe`, `Moondrop-0.6.1-macOS-arm64.dmg`, and `Moondrop-0.6.1-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
 
 GitHub Actions builds the three native installers and portable downloads, and tests the native networking engine on Linux, macOS Apple Silicon, macOS Intel, and Windows. The sing-box engine downloads separately on first connection.
 
@@ -303,3 +303,7 @@ Moondrop keeps the original Shadowmere-named data folders for compatibility and 
 Bundled SVG flags render consistently without requiring emoji fonts. Java 17 + Swing/[FlatLaf](https://www.formdev.com/flatlaf/), Gson, Apache Commons Compress. The UI stays on the event thread; feed requests, engine installation, and connection work run off-thread. A single sing-box process provides the loopback HTTP/SOCKS endpoint and the selected protected proxy protocol. The benchmark uses one separate temporary core with isolated routing per candidate.
 
 Shadowmere's [API implementation](https://github.com/shadowmere-xyz/shadowmere/blob/main/proxylist/views.py) supplies active server records; [SagerNet sing-box](https://github.com/SagerNet/sing-box) supplies the networking core. This project's code is GPL-3.0-or-later; dependencies retain their own licenses. See `THIRD_PARTY.md`.
+
+### Settings
+
+Open **Settings** in the top right to choose automatic update checks, background server tests, nearby-first testing, and the default system proxy preference. Preferences are saved between launches. Existing speed results stay cached; Quick Connect verifies connections even when background tests are disabled. Nearby ordering changes apply when refreshing servers.

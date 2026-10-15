@@ -16,6 +16,8 @@ import java.time.ZoneId;
 /** The desktop view. Networking and process lifecycle live in the controller. */
 public final class AppWindow extends JFrame {
     public interface Actions {
+        AppSettings settings();
+        boolean saveSettings(AppSettings settings);
         void refresh();
         void retestSpeeds();
         void checkForUpdates();
@@ -50,6 +52,7 @@ public final class AppWindow extends JFrame {
     private final Map<Server, ServerPerformance> performance = new HashMap<>();
     private final JComboBox<String> sort = new JComboBox<>(new String[]{"Best connection", "Country name"});
     private final JButton retest = new JButton("Retest speeds");
+    private final JButton settingsButton = new JButton("Settings");
     private final JButton update = new JButton("Check for updates");
     private final JLabel updateStatus = label("", MUTED, 11);
     private boolean updateBusy;
@@ -83,7 +86,7 @@ public final class AppWindow extends JFrame {
         JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT,12,0)); brand.setOpaque(false);
         brand.add(new Mark());
         JPanel words = vertical(); words.add(label("MOONDROP", TEXT,20)); words.add(label("by rayyan", MUTED,12)); brand.add(words);
-        header.add(brand,BorderLayout.WEST); refresh.addActionListener(e -> actions.refresh()); JPanel headerTools=new JPanel(new FlowLayout(FlowLayout.RIGHT,8,0));headerTools.setOpaque(false);updateStatus.setPreferredSize(new Dimension(125,30));headerTools.add(updateStatus);update.setMargin(new Insets(5,8,5,8));update.setToolTipText("Check GitHub for a newer Moondrop release");update.addActionListener(e -> {if(updateVersion!=null)actions.restartToUpdate();else actions.checkForUpdates();});headerTools.add(update);headerTools.add(refresh);header.add(headerTools,BorderLayout.EAST); root.add(header,BorderLayout.NORTH);
+        header.add(brand,BorderLayout.WEST); refresh.addActionListener(e -> actions.refresh()); JPanel headerTools=new JPanel(new FlowLayout(FlowLayout.RIGHT,8,0));headerTools.setOpaque(false);updateStatus.setPreferredSize(new Dimension(125,30));headerTools.add(updateStatus);update.setMargin(new Insets(5,8,5,8));update.setToolTipText("Check GitHub for a newer Moondrop release");update.addActionListener(e -> {if(updateVersion!=null)actions.restartToUpdate();else actions.checkForUpdates();});headerTools.add(update);headerTools.add(refresh); settingsButton.addActionListener(e -> showSettings()); headerTools.add(settingsButton);header.add(headerTools,BorderLayout.EAST); root.add(header,BorderLayout.NORTH);
         JPanel body = new JPanel(new GridLayout(1,2,26,0)); body.setOpaque(false); root.add(body,BorderLayout.CENTER);
         JPanel browser = panel(new BorderLayout(0,14)); body.add(browser);
         JPanel filters = vertical(); filters.add(label("EXPLORE LOCATIONS",MUTED,11)); filters.add(Box.createVerticalStrut(13));
@@ -112,6 +115,30 @@ public final class AppWindow extends JFrame {
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();}public void removeUpdate(DocumentEvent e){filter();}public void changedUpdate(DocumentEvent e){filter();}});
         country.addActionListener(e -> {if(!updatingFilters)filter();}); servers.addListSelectionListener(e -> {if(connected||rebuilding)return; Server s=servers.getSelectedValue(); selectedName.setText(s==null?"Choose a server":s.countryName());selectedName.setIcon(s==null?null:FlagIcons.get(s.country()));selectedName.setIconTextGap(10); selectedDetail.setText(s==null?"Select a location from the list.":s.displayName()); updateControls();}); updateControls();
     }
+    private void showSettings() {
+        AppSettings current=actions.settings();
+        JCheckBox updates=new JCheckBox("Check for updates automatically",current.automaticUpdates());
+        JCheckBox testing=new JCheckBox("Test servers in the background",current.automaticTesting());
+        JCheckBox nearby=new JCheckBox("Test nearby countries first",current.nearbyFirst());
+        JCheckBox proxy=new JCheckBox("Use system proxy by default",current.systemProxy());
+        proxy.setEnabled(systemProxySupported);
+        JPanel content=vertical(); content.setBorder(new EmptyBorder(10,6,10,6));
+        content.add(label("MAKE IT YOURS",MUTED,11));content.add(Box.createVerticalStrut(14));
+        for(JCheckBox option:List.of(updates,testing,nearby,proxy)) {
+            option.setOpaque(false);option.setAlignmentX(Component.LEFT_ALIGNMENT);content.add(option);content.add(Box.createVerticalStrut(8));
+        }
+        content.add(label("Saved tests stay cached for 7 days. Quick Connect still verifies servers.",MUTED,11));
+        content.add(Box.createVerticalStrut(6));
+        content.add(label("Nearby ordering uses an approximate country lookup on refresh.",MUTED,11));
+        content.add(Box.createVerticalStrut(6));
+        content.add(label(systemProxySupported?"Proxy preference applies to your next connection.":"Use local SOCKS5 / HTTP at 127.0.0.1:17890 on this platform.",MUTED,11));
+        int choice=JOptionPane.showOptionDialog(this,content,"Settings",JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE,null,new String[]{"Save settings","Cancel"},"Save settings");
+        if(choice==0&&actions.saveSettings(new AppSettings(updates.isSelected(),testing.isSelected(),nearby.isSelected(),proxy.isSelected()))) {
+            if(!busy&&!connected)systemProxy.setSelected(systemProxySupported&&proxy.isSelected());
+        }
+    }
+
     public void setServers(List<Server> list) {
         all=List.copyOf(list); searchText.clear(); countryNames.clear(); countryCodes.clear();
         for(Server server:all){
@@ -188,15 +215,15 @@ public final class AppWindow extends JFrame {
         search.setText(""); country.setSelectedIndex(0); servers.setSelectedValue(server,true);
         selectedName.setText(server.countryName()); selectedName.setIcon(FlagIcons.get(server.country())); selectedName.setIconTextGap(10); selectedDetail.setText(server.displayName());
     }
-    public void setSystemProxySupported(boolean supported){systemProxySupported=supported;systemProxy.setSelected(supported);systemProxy.setToolTipText(supported?null:"System proxy settings are available on macOS and Windows. Use the local SOCKS5 endpoint on this platform.");updateControls();}
+    public void setSystemProxySupported(boolean supported){systemProxySupported=supported;systemProxy.setSelected(supported&&actions.settings().systemProxy());systemProxy.setToolTipText(supported?null:"System proxy settings are available on macOS and Windows. Use the local SOCKS5 endpoint on this platform.");updateControls();}
     public void setBusy(boolean value){busy=value; updateControls();}
     public void setCoreReady(boolean value){coreReady=value; install.setText(value?"Engine ready":"Install engine"); updateControls();}
-    public void setConnection(String state,String description,boolean value){connected=value;status.setText(state);status.setForeground(value?MINT:TEXT);detail.setText("<html><div style='width:270px'>"+escape(description)+"</div></html>");detail.setToolTipText(description);updateControls();}
+    public void setConnection(String state,String description,boolean value){if(connected&&!value)systemProxy.setSelected(systemProxySupported&&actions.settings().systemProxy());connected=value;status.setText(state);status.setForeground(value?MINT:TEXT);detail.setText("<html><div style='width:270px'>"+escape(description)+"</div></html>");detail.setToolTipText(description);updateControls();}
     public void showError(String title,String description){JTextArea text=new JTextArea(description,7,48);text.setEditable(false);text.setLineWrap(true);text.setWrapStyleWord(true);text.setOpaque(false);JOptionPane.showMessageDialog(this,text,title,JOptionPane.ERROR_MESSAGE);}
     public void appendLog(String text){log.append(text+"\n");log.setCaretPosition(log.getDocument().getLength());}
     private void updateControls(){
         retest.setEnabled(speedTesting||(!busy&&!all.isEmpty())); sort.setEnabled(!busy);
-        refresh.setEnabled(!busy); install.setEnabled(!busy&&!coreReady&&!connected);
+        settingsButton.setEnabled(!busy); refresh.setEnabled(!busy); install.setEnabled(!busy&&!coreReady&&!connected);
         quickConnect.setText(busy?"Please wait…":"Quick Connect");
         quickConnect.setEnabled(!busy&&!connected&&!all.isEmpty());
         connect.setText(busy?"Cancel":connected?"Disconnect":"Connect selected server");

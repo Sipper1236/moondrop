@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public final class Main implements AppWindow.Actions {
     private final Path data;
+    private volatile AppSettings settings=AppSettings.defaults();
     private final CoreInstaller installer;
     private final SystemProxy system;
     private final AppUpdater updater;
@@ -100,6 +101,7 @@ public final class Main implements AppWindow.Actions {
             JOptionPane.showMessageDialog(null,e.getMessage(),"Cannot open Moondrop",JOptionPane.ERROR_MESSAGE);
             releaseLock(); return;
         }
+        try { settings=AppSettings.load(data); } catch(IOException ignored) { /* Defaults remain usable. */ }
         window=new AppWindow(this);
         window.setSystemProxySupported(system.isSupported());
         window.addWindowListener(new WindowAdapter(){@Override public void windowClosing(WindowEvent e){shutdown();}});
@@ -115,8 +117,8 @@ public final class Main implements AppWindow.Actions {
         window.appendLog("Select a location or use Quick Connect.");
         window.appendLog("Local HTTP / SOCKS5 · 127.0.0.1:"+ProxyEngine.PORT);
         window.setVisible(true);
-        checkForUpdates();
-        monitor.scheduleWithFixedDelay(this::checkForUpdates,6,6,TimeUnit.HOURS);
+        if(settings.automaticUpdates())checkForUpdates();
+        monitor.scheduleWithFixedDelay(() -> {if(settings.automaticUpdates())checkForUpdates();},6,6,TimeUnit.HOURS);
         monitor.scheduleWithFixedDelay(() -> {
             ProxyEngine current=engine;
             if(connected&&current!=null&&!current.alive()&&!closing.get()) {
@@ -133,13 +135,26 @@ public final class Main implements AppWindow.Actions {
         });
     }
 
+    @Override public AppSettings settings() { return settings; }
+    @Override public boolean saveSettings(AppSettings next) {
+        try { next.save(data); }
+        catch(IOException e) { window.showError("Could not save settings",safeMessage(e)); return false; }
+        AppSettings previous=settings; settings=next;
+        if(!next.nearbyFirst())nearbyCountry=null;
+        if(!next.automaticTesting())cancelSpeedTests();
+        else if(!previous.automaticTesting()&&!servers.isEmpty())startSpeedTests(false);
+        if(next.automaticUpdates()&&!previous.automaticUpdates())checkForUpdates();
+        log("Settings saved.");
+        return true;
+    }
+
     @Override public void refresh() {submit("Refreshing servers",this::loadServers);}
     private void loadServers() throws Exception {
         cancelSpeedTests();
         if(!connected)ui(() -> window.setConnection("Loading servers","Getting encrypted proxy locations from four sources…",false));
         ServerCatalog.Result catalog=new ServerCatalog().fetch();
         List<Server> fresh=catalog.servers(); servers=fresh;
-        nearbyCountry=proximity.locate().orElse(null);
+        nearbyCountry=settings.nearbyFirst()?proximity.locate().orElse(null):null;
         if(nearbyCountry!=null)log("Nearby locations tested first · approximate country "+new java.util.Locale("",nearbyCountry).getDisplayCountry(java.util.Locale.ENGLISH));
         else log("Approximate location unavailable; testing without a distance preference.");
         performance.replaceAll(Map.of());
@@ -153,7 +168,7 @@ public final class Main implements AppWindow.Actions {
         log("Updated · "+fresh.size()+" protected proxy servers");
         catalog.counts().forEach((source,count) -> log(source+" · "+count+" unique servers"));
         catalog.warnings().forEach(this::log);
-        startSpeedTests(false);
+        if(settings.automaticTesting())startSpeedTests(false);
     }
 
     @Override public void installCore() {submit("Installing engine",this::prepareEngine);}
@@ -186,7 +201,7 @@ public final class Main implements AppWindow.Actions {
             checkCancelled();
             log("Best of "+result.tested()+" tested · "+result.server().displayName()+" · median HTTPS "+result.millis()+" ms");
             connectNow(result.server(),useSystem,result.millis());
-            } finally {if(!closing.get()&&!Thread.currentThread().isInterrupted())startSpeedTests(false);}
+            } finally {if(settings.automaticTesting()&&!closing.get()&&!Thread.currentThread().isInterrupted())startSpeedTests(false);}
         });
     }
 
