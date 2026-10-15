@@ -81,7 +81,7 @@ java -version
 
 ## 2. Download Moondrop
 
-1. Open the [Moondrop v0.2.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.2.0). This is a prerelease.
+1. Open the [Moondrop v0.3.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.3.0). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP into a folder you want to keep. Run Moondrop from the extracted folder, not from inside the ZIP.
 
@@ -127,6 +127,16 @@ On **Windows and macOS**, enable **Use as system proxy** to route compatible app
 On **Linux**, configure your browser or application's proxy manually: choose **HTTP** or **SOCKS5**, host **127.0.0.1**, port **17890**. You can also use these settings in applications on Windows or macOS when system proxy mode is disabled. Moondrop is an application proxy; applications that ignore proxy settings will use their own connection.
 
 Click **Disconnect** when finished. Close Moondrop normally so it can restore any system proxy settings it changed.
+
+## Automatic updates
+
+Moondrop checks this project's GitHub releases in the background at launch and every six hours. A newer JAR downloads automatically and is verified against the release's SHA-256 checksum and application version. A verified staged download is reused, so it is not downloaded again on every launch.
+
+When **Restart to update** appears, click it when convenient. Moondrop restores proxy settings, closes its engines, waits for the app to exit, replaces the JAR, and restarts using your installed Java. It keeps `moondrop.jar.previous` beside the JAR as a backup. Java is never downloaded or bundled by the updater.
+
+**Check for updates** retries manually. An unavailable update service does not block server browsing or connections. Updates require a writable app folder; move the extracted Moondrop folder somewhere you own if needed. Updates follow this project's published preview releases as well as regular releases. Older releases without the updater must be upgraded manually once using the download above.
+
+If an update cannot install or launch, the helper keeps/restores the previous app. Logs are in the `updates` subfolder of Moondrop's data folder listed below. You can also close Moondrop and rename `moondrop.jar.previous` back to `moondrop.jar` for manual rollback.
 
 ## If it will not open
 

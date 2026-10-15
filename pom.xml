@@ -1,6 +1,6 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>xyz.shadowmere</groupId><artifactId>moondrop</artifactId><version>0.2.0</version>
+  <groupId>xyz.shadowmere</groupId><artifactId>moondrop</artifactId><version>0.3.0</version>
   <name>Moondrop</name><description>An independent, minimal Shadowsocks desktop client.</description>
   <properties><maven.compiler.release>17</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
   <dependencies>
@@ -21,7 +21,7 @@
       <transformers>
         <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer"><resource>META-INF/LICENSE.txt</resource></transformer>
         <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer"><resource>META-INF/NOTICE.txt</resource></transformer>
-        <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"><mainClass>xyz.shadowmere.desktop.Main</mainClass></transformer>
+        <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"><mainClass>xyz.shadowmere.desktop.Main</mainClass><manifestEntries><Implementation-Version>${project.version}</Implementation-Version></manifestEntries></transformer>
       </transformers>
     </configuration></execution></executions></plugin>
   </plugins></build>

@@ -17,6 +17,11 @@ public final class Main implements AppWindow.Actions {
     private final Path data;
     private final CoreInstaller installer;
     private final SystemProxy system;
+    private final AppUpdater updater;
+    private final ExecutorService updateWorker=Executors.newSingleThreadExecutor(r -> {Thread t=new Thread(r,"app-updates");t.setDaemon(true);return t;});
+    private final AtomicBoolean checkingUpdates=new AtomicBoolean();
+    private record PendingUpdate(AppUpdater.Release release,Path jar) { }
+    private volatile PendingUpdate pendingUpdate;
     private final PerformanceCache performanceCache;
     private final PerformanceResults performance = new PerformanceResults();
     private final ExecutorService speedWorker = Executors.newSingleThreadExecutor(r -> {Thread t=new Thread(r,"speed-tests");t.setDaemon(true);return t;});
@@ -36,7 +41,7 @@ public final class Main implements AppWindow.Actions {
     private FileChannel lockChannel;
     private FileLock lock;
 
-    private Main(Path data) { this.data=data; installer=new CoreInstaller(data); system=new SystemProxy(data);performanceCache=new PerformanceCache(data); }
+    private Main(Path data) { this.data=data; installer=new CoreInstaller(data); system=new SystemProxy(data);performanceCache=new PerformanceCache(data);updater=new AppUpdater(data); }
 
     public static void main(String[] args) {
         if(args.length>0 && (args[0].equals("--install-engine")||args[0].equals("--smoke-test"))) {
@@ -96,6 +101,7 @@ public final class Main implements AppWindow.Actions {
         window.addWindowListener(new WindowAdapter(){@Override public void windowClosing(WindowEvent e){shutdown();}});
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             closing.set(true); Future<?> running=task; if(running!=null) running.cancel(true);
+            updateWorker.shutdownNow();
             cancelSpeedTests();speedWorker.shutdownNow();
             worker.shutdownNow();
             try {worker.awaitTermination(15,TimeUnit.SECONDS);speedWorker.awaitTermination(10,TimeUnit.SECONDS); cleanup();} catch(Exception ignored) { }
@@ -105,6 +111,8 @@ public final class Main implements AppWindow.Actions {
         window.appendLog("Select a location or use Quick Connect.");
         window.appendLog("Local HTTP / SOCKS5 · 127.0.0.1:"+ProxyEngine.PORT);
         window.setVisible(true);
+        checkForUpdates();
+        monitor.scheduleWithFixedDelay(this::checkForUpdates,6,6,TimeUnit.HOURS);
         monitor.scheduleWithFixedDelay(() -> {
             ProxyEngine current=engine;
             if(connected&&current!=null&&!current.alive()&&!closing.get()) {
@@ -293,13 +301,54 @@ public final class Main implements AppWindow.Actions {
     }
 
     private void shutdown() {
+        shutdown(false);
+    }
+
+    @Override public void checkForUpdates() {
+        if(closing.get()||!checkingUpdates.compareAndSet(false,true))return;
+        PendingUpdate waiting=pendingUpdate;
+        if(waiting!=null){checkingUpdates.set(false);ui(() -> window.setUpdateReady(waiting.release().version()));return;}
+        ui(() -> window.setUpdateStatus("Checking updates…",true));
+        updateWorker.submit(() -> {
+            try {
+                var available=updater.check(AppUpdater.currentVersion());
+                if(available.isEmpty()) {ui(() -> window.setUpdateStatus("Up to date · "+AppUpdater.currentVersion(),false));return;}
+                AppUpdater.Release release=available.get();
+                ui(() -> window.setUpdateStatus("Downloading "+release.version()+"…",true));
+                Path jar=updater.download(release,progress -> ui(() -> window.setUpdateStatus(progress,true)));
+                if(!closing.get()) {
+                    pendingUpdate=new PendingUpdate(release,jar);
+                    ui(() -> window.setUpdateReady(release.version()));log("Moondrop "+release.version()+" is verified and ready. Restart to update when convenient.");
+                }
+            } catch(InterruptedException|CancellationException interrupted) {Thread.currentThread().interrupt();}
+            catch(Exception failure) {if(!closing.get()){ui(() -> window.setUpdateStatus("Update check unavailable",false));log("Updates: "+safeMessage(failure));}}
+            finally {checkingUpdates.set(false);}
+        });
+    }
+
+    @Override public void restartToUpdate() {
+        if(pendingUpdate!=null)shutdown(true);
+    }
+
+    private void shutdown(boolean installUpdate) {
         if(!closing.compareAndSet(false,true)) return;
         cancelSpeedTests();
         window.setBusy(true);
         Future<?> running=task;if(running!=null)running.cancel(true);
         worker.submit(() -> {
-            try {cleanup();speedWorker.shutdownNow();speedWorker.awaitTermination(10,TimeUnit.SECONDS);monitor.shutdownNow();releaseLock();SwingUtilities.invokeLater(() -> {window.dispose();System.exit(0);});}
-            catch(Exception e) {closing.set(false);ui(() -> {window.setBusy(false);window.showError("Restore proxy settings",safeMessage(e)+"\nKeep the app open and retry Disconnect before closing.");});}
+            try {
+                Path plan=null;
+                if(installUpdate) {
+                    PendingUpdate ready=pendingUpdate;
+                    if(ready==null)throw new IOException("The downloaded update is no longer available. Check for updates again.");
+                    plan=UpdateInstaller.prepare(ready.jar(),ready.release().sha256(),ready.release().version(),data);
+                }
+                cleanup();
+                if(plan!=null)UpdateInstaller.start(plan);
+                updateWorker.shutdownNow();speedWorker.shutdownNow();speedWorker.awaitTermination(10,TimeUnit.SECONDS);
+                monitor.shutdownNow();releaseLock();SwingUtilities.invokeLater(() -> {window.dispose();System.exit(0);});
+            }
+            catch(Exception e) {closing.set(false);ui(() -> {window.setBusy(false);window.showError(installUpdate?"Could not restart to update":"Restore proxy settings",safeMessage(e)+"\nThe app remains open so you can retry.");});}
         });
     }
 

@@ -18,6 +18,8 @@ public final class AppWindow extends JFrame {
     public interface Actions {
         void refresh();
         void retestSpeeds();
+        void checkForUpdates();
+        void restartToUpdate();
         void quickConnect(boolean systemProxy);
         void connect(Server server, boolean systemProxy);
         void disconnect();
@@ -43,6 +45,10 @@ public final class AppWindow extends JFrame {
     private final Map<Server, ServerPerformance> performance = new HashMap<>();
     private final JComboBox<String> sort = new JComboBox<>(new String[]{"Fastest first", "Country name"});
     private final JButton retest = new JButton("Retest speeds");
+    private final JButton update = new JButton("Check for updates");
+    private final JLabel updateStatus = label("", MUTED, 11);
+    private boolean updateBusy;
+    private String updateVersion;
     private final JLabel speedProgress = label("Latency · cached for 30 min", MUTED, 11);
     private final Timer performanceRefresh = new Timer(150, e -> filter());
     private boolean speedTesting, rebuilding;
@@ -72,7 +78,7 @@ public final class AppWindow extends JFrame {
         JPanel brand = new JPanel(new FlowLayout(FlowLayout.LEFT,12,0)); brand.setOpaque(false);
         brand.add(new Mark());
         JPanel words = vertical(); words.add(label("MOONDROP", TEXT,20)); words.add(label("by rayyan", MUTED,12)); brand.add(words);
-        header.add(brand,BorderLayout.WEST); refresh.addActionListener(e -> actions.refresh()); header.add(refresh,BorderLayout.EAST); root.add(header,BorderLayout.NORTH);
+        header.add(brand,BorderLayout.WEST); refresh.addActionListener(e -> actions.refresh()); JPanel headerTools=new JPanel(new FlowLayout(FlowLayout.RIGHT,8,0));headerTools.setOpaque(false);updateStatus.setPreferredSize(new Dimension(125,30));headerTools.add(updateStatus);update.setMargin(new Insets(5,8,5,8));update.setToolTipText("Check GitHub for a newer Moondrop release");update.addActionListener(e -> {if(updateVersion!=null)actions.restartToUpdate();else actions.checkForUpdates();});headerTools.add(update);headerTools.add(refresh);header.add(headerTools,BorderLayout.EAST); root.add(header,BorderLayout.NORTH);
         JPanel body = new JPanel(new GridLayout(1,2,26,0)); body.setOpaque(false); root.add(body,BorderLayout.CENTER);
         JPanel browser = panel(new BorderLayout(0,14)); body.add(browser);
         JPanel filters = vertical(); filters.add(label("EXPLORE LOCATIONS",MUTED,11)); filters.add(Box.createVerticalStrut(13));
@@ -137,6 +143,23 @@ public final class AppWindow extends JFrame {
     public void setPerformance(Server server,ServerPerformance value){performance.put(server,value);if(!performanceRefresh.isRunning())performanceRefresh.start();}
     public void clearPerformance(){performance.clear();performanceRefresh.stop();filter();}
     public void setSpeedTesting(boolean running,String progress){speedTesting=running;retest.setText(running?"Stop testing":"Retest speeds");speedProgress.setText(progress!=null&&!progress.isBlank()?progress:running?"Testing latency…":"Latency · cached for 30 min");updateControls();}
+    public void setUpdateStatus(String text,boolean running){
+        updateBusy=running;
+        updateStatus.setText(text==null?"":text);
+        updateStatus.setToolTipText(text);
+        update.setToolTipText(text);
+        update.setText(updateVersion!=null?"Restart to update":running?"Checking…":"Check for updates");
+        update.setEnabled(!updateBusy);
+    }
+    public void setUpdateReady(String version){
+        updateVersion=version==null||version.isBlank()?null:version;
+        updateBusy=false;
+        updateStatus.setText(updateVersion==null?"":"v"+updateVersion+" ready");
+        updateStatus.setToolTipText(updateVersion==null?null:"Moondrop "+updateVersion+" is downloaded. Restart to install it.");
+        update.setText(updateVersion==null?"Check for updates":"Restart to update");
+        update.setToolTipText(updateVersion==null?"Check GitHub for a newer Moondrop release":"Restart Moondrop to install the downloaded update");
+        update.setEnabled(true);
+    }
     public void selectServer(Server server){
         if(server==null)return;
         search.setText(""); country.setSelectedIndex(0); servers.setSelectedValue(server,true);
