@@ -1,5 +1,7 @@
 # Third-party software
 
+- **Eclipse Temurin OpenJDK 21** — bundled only in the Windows and macOS native installers; GPL-2.0 with the Classpath Exception and additional component notices. The portable ZIP/JAR contains no Java runtime. Runtime license and notice files are retained in `runtime/legal` (inside the app bundle on macOS). The runtime's `release` file identifies the exact included version. Corresponding source: https://github.com/adoptium/jdk21u; distribution and build information: https://adoptium.net/temurin/. No local source modifications.
+
 - **sing-box**, SagerNet — GPL-3.0-or-later, https://github.com/SagerNet/sing-box. Downloaded separately at runtime from the official v1.14.3 release. Binary archives are verified against pinned SHA-256 values from that release. Corresponding source: https://github.com/SagerNet/sing-box/tree/v1.14.3. No local modifications.
 - **FlatLaf** — Apache-2.0, https://github.com/JFormDesigner/FlatLaf.
 - **Gson** — Apache-2.0, https://github.com/google/gson.

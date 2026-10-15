@@ -22,6 +22,7 @@ public final class Main implements AppWindow.Actions {
     private final AtomicBoolean checkingUpdates=new AtomicBoolean();
     private record PendingUpdate(AppUpdater.Release release,Path jar) { }
     private volatile PendingUpdate pendingUpdate;
+    private volatile AppUpdater.Release nativeUpdate;
     private final PerformanceCache performanceCache;
     private final ServerProximity proximity;
     private volatile String nearbyCountry;
@@ -327,6 +328,8 @@ public final class Main implements AppWindow.Actions {
 
     @Override public void checkForUpdates() {
         if(closing.get()||!checkingUpdates.compareAndSet(false,true))return;
+        AppUpdater.Release installerUpdate=nativeUpdate;
+        if(installerUpdate!=null){checkingUpdates.set(false);ui(() -> window.setNativeUpdateReady(installerUpdate.version()));return;}
         PendingUpdate waiting=pendingUpdate;
         if(waiting!=null){checkingUpdates.set(false);ui(() -> window.setUpdateReady(waiting.release().version()));return;}
         ui(() -> window.setUpdateStatus("Checking updates…",true));
@@ -335,6 +338,10 @@ public final class Main implements AppWindow.Actions {
                 var available=updater.check(AppUpdater.currentVersion());
                 if(available.isEmpty()) {ui(() -> window.setUpdateStatus("Up to date · "+AppUpdater.currentVersion(),false));return;}
                 AppUpdater.Release release=available.get();
+                if("native".equals(System.getProperty("moondrop.distribution"))) {
+                    nativeUpdate=release;ui(() -> window.setNativeUpdateReady(release.version()));
+                    log("Moondrop "+release.version()+" is available. Download its complete installer to update the app and bundled Java together.");return;
+                }
                 ui(() -> window.setUpdateStatus("Downloading "+release.version()+"…",true));
                 Path jar=updater.download(release,progress -> ui(() -> window.setUpdateStatus(progress,true)));
                 if(!closing.get()) {
@@ -348,6 +355,12 @@ public final class Main implements AppWindow.Actions {
     }
 
     @Override public void restartToUpdate() {
+        AppUpdater.Release available=nativeUpdate;
+        if(available!=null) {
+            try {Desktop.getDesktop().browse(available.page());}
+            catch(Exception failure){window.showError("Download update","Open "+available.page()+" to download the complete installer.");}
+            return;
+        }
         if(pendingUpdate!=null)shutdown(true);
     }
 

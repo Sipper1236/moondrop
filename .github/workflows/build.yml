@@ -51,10 +51,50 @@ jobs:
           $engine = (Resolve-Path target/native-test-data/engine/sing-box.exe).Path
           mvn -B "-Dengine.test.path=$engine" test
           if ($LASTEXITCODE -ne 0) { throw 'Encrypted connection test failed' }
+      - name: Ensure WiX 3 is available
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $candle = Get-ChildItem 'C:\Program Files (x86)\WiX Toolset*\bin\candle.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $candle) {
+            choco install wixtoolset --version=3.14.1 --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed' }
+            $candle = Get-ChildItem 'C:\Program Files (x86)\WiX Toolset*\bin\candle.exe' | Select-Object -First 1
+          }
+          if (-not $candle) { throw 'WiX 3 candle.exe was not found' }
+          $candle.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Build Windows installer with Java
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/package-windows.ps1
+      - name: Verify bundled Windows runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $runtime = Join-Path $PWD 'target/native-image/Moondrop/runtime/bin/java.exe'
+          & $runtime --list-modules
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled Java could not start' }
+          & $runtime "-Dshadowmere.dataDir=target/bundled-runtime-check" -jar target/native-image/Moondrop/app/moondrop.jar --install-engine
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled runtime networking check failed' }
+          if (-not (Get-ChildItem dist/*.exe)) { throw 'Windows installer missing' }
+      - name: Build Mac disk image with Java
+        if: runner.os == 'macOS'
+        run: bash scripts/package-macos.sh
+      - name: Verify Mac disk image and bundled runtime
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p target/dmg-check
+          hdiutil attach dist/*.dmg -nobrowse -readonly -mountpoint "$PWD/target/dmg-check"
+          trap 'hdiutil detach "$PWD/target/dmg-check"' EXIT
+          runtime="$PWD/target/dmg-check/Moondrop.app/Contents/runtime/Contents/Home/bin/java"
+          "$runtime" --list-modules
+          "$runtime" "-Dshadowmere.dataDir=$PWD/target/bundled-runtime-check" -jar "$PWD/target/dmg-check/Moondrop.app/Contents/app/moondrop.jar" --install-engine
       - uses: actions/upload-artifact@v4
         with:
           name: Moondrop-${{ matrix.label }}
           path: |
             dist/Moondrop.zip
+            dist/*.exe
+            dist/*.dmg
             target/moondrop.jar
           if-no-files-found: error

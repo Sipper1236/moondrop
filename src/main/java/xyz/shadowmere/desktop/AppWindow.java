@@ -179,6 +179,10 @@ public final class AppWindow extends JFrame {
         update.setToolTipText(updateVersion==null?"Check GitHub for a newer Moondrop release":"Restart Moondrop to install the downloaded update");
         update.setEnabled(true);
     }
+    public void setNativeUpdateReady(String version){
+        setUpdateReady(version);update.setText("Download update");
+        update.setToolTipText("Open the official release to update Moondrop and its bundled Java together.");
+    }
     public void selectServer(Server server){
         if(server==null)return;
         search.setText(""); country.setSelectedIndex(0); servers.setSelectedValue(server,true);

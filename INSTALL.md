@@ -1,12 +1,33 @@
 # Install Moondrop
 
-Moondrop runs on Windows (x64/ARM64), macOS (Intel/Apple Silicon), and Linux x64 with **Java 17 or newer**. Java 21 LTS is recommended. Java is installed separately and is **not bundled with Moondrop**. A desktop Java runtime (JRE) is enough; a JDK works too. You do not need Maven or any development tools to run the download.
+Download from the [Moondrop v0.6.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.0), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
 
-## 1. Install Java
+## Windows installer
+
+1. Under **Assets**, download **Moondrop-0.6.0-Windows-x64.exe** for a Windows x64 PC.
+2. Run the installer. It installs for your user account and creates Start menu and desktop shortcuts.
+3. Open **Moondrop** from either shortcut.
+
+This release is unsigned. Windows SmartScreen or Microsoft Defender may warn about an unfamiliar publisher. Proceed only if you trust the download and obtained it from the official release linked above.
+
+## macOS installer
+
+1. Open Apple menu → **About This Mac** to check your chip.
+2. Download **Moondrop-0.6.0-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.6.0-macOS-x64.dmg** for Intel.
+3. Open the DMG and drag **Moondrop.app** into **Applications**. If that folder is not writable by your account, use `~/Applications` instead.
+4. Open Moondrop from Applications, then eject the installer disk.
+
+This release is unsigned and is not notarized. If macOS blocks it, open **System Settings → Privacy & Security → Open Anyway** after attempting to launch, and proceed only if you trust the official download. Keep Gatekeeper enabled.
+
+## Portable ZIP or JAR
+
+The portable download runs on Windows (x64/ARM64), macOS (Intel/Apple Silicon), and Linux x64 with **Java 17 or newer**. Java 21 LTS is recommended. The **portable ZIP and standalone JAR do not bundle Java**. A desktop Java runtime (JRE) is enough; a JDK works too. You do not need Maven or development tools to run them. The following Java setup and launcher steps apply to these portable downloads.
+
+### 1. Install Java
 
 If `java -version` already reports version 17 or newer, skip to downloading Moondrop.
 
-### Windows
+#### Windows
 
 Open PowerShell or Windows Terminal and run:
 
@@ -22,7 +43,7 @@ java -version
 
 Prefer an installer? Download [Eclipse Temurin 21](https://adoptium.net/temurin/releases/?version=21), choose **Windows**, package type **JRE**, your CPU architecture (usually **x64**), and the **MSI** installer. Run it and keep **Add to PATH** enabled. Reopen the terminal to check the version. The JRE package is listed in [Microsoft's WinGet catalog](https://github.com/microsoft/winget-pkgs/tree/master/manifests/e/EclipseAdoptium/Temurin/21/JRE). See [Microsoft's Java setup instructions](https://learn.microsoft.com/en-us/windows/dev-environment/java).
 
-### macOS
+#### macOS
 
 **Automatic setup:** download and extract Moondrop below, then double-click `installmacos.command`. It checks for Java 17+ with desktop support. If missing, it downloads the correct Temurin 21 installer for Intel or Apple Silicon, verifies its SHA-256 checksum and macOS package signature, and asks for administrator authorization to install Java separately. It then opens Moondrop. No Homebrew is needed.
 
@@ -45,7 +66,7 @@ Open a new Terminal window and check:
 java -version
 ```
 
-### Linux
+#### Linux
 
 Install the desktop runtime for your distribution. Do not choose a package with only `headless` in its name: Moondrop needs a graphical desktop.
 
@@ -83,7 +104,7 @@ Check the installed version:
 java -version
 ```
 
-## 2. Download Moondrop
+### 2. Download the portable archive
 
 1. Open the [Moondrop v0.6.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.0). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
@@ -91,7 +112,7 @@ java -version
 
 You can also download **moondrop.jar** alone and run it with `java -jar moondrop.jar`.
 
-## 3. Open Moondrop
+### 3. Open the portable app
 
 **Windows:** double-click `launch-windows.bat` in the extracted folder. Alternatively, open a terminal in that folder (right-click the folder background → **Open in Terminal**) and run:
 
@@ -122,7 +143,7 @@ The repository and ZIP also include `moondrop.desktop` and `moondrop.svg`. The d
 
 For a portable launch without installing a shortcut, run `chmod +x launch-linux.sh` followed by `./launch-linux.sh`, or use `java -jar moondrop.jar` from the extracted folder.
 
-## 4. Connect
+## Connect
 
 New and expired checks run **nearby first**: your approximate country comes from a direct HTTPS lookup at [IPWHOIS](https://ipwhois.io/documentation), cached locally for 24 hours. Only the country code and lookup time are saved. Moondrop compares reported server countries using country-center distances; unknown locations come last. If lookup fails, Moondrop reuses the saved country; without one, testing continues without a distance preference. A VPN or upstream proxy can affect the detected country. To override it, launch with an ISO country code, for example `java -Dmoondrop.country=CA -jar moondrop.jar`. This changes test order; measured reliability, median HTTPS latency, and a bounded download estimate decide the best tested connection.
 
@@ -148,18 +169,18 @@ Click **Disconnect** when finished. Close Moondrop normally so it can restore an
 
 ## Automatic updates
 
-Moondrop checks this project's GitHub releases in the background at launch and every six hours. A newer JAR downloads automatically and is verified against the release's SHA-256 checksum and application version. A verified staged download is reused, so it is not downloaded again on every launch.
+Moondrop checks this project's GitHub releases in the background at launch and every six hours. **Check for updates** retries manually. An unavailable update service does not block browsing or connections. Updates follow published preview releases as well as regular releases.
 
-When **Restart to update** appears, click it when convenient. Moondrop restores proxy settings, closes its engines, waits for the app to exit, replaces the JAR, and restarts using your installed Java. It keeps `moondrop.jar.previous` beside the JAR as a backup. Java is never downloaded or bundled by the updater.
+**Windows and macOS installer editions:** when **Download update** appears, click it to open the official release page. Download the installer for your platform and chip, disconnect and close Moondrop, then install the new version. On macOS, replace the existing app in the folder where you installed it. The full installer updates the app and its bundled Java together. Saved settings and connection results remain in the data folder below.
 
-**Check for updates** retries manually. An unavailable update service does not block server browsing or connections. Updates require a writable app folder; move the extracted Moondrop folder somewhere you own if needed. Updates follow this project's published preview releases as well as regular releases. Older releases without the updater must be upgraded manually once using the download above.
+**Portable ZIP/JAR edition:** a newer JAR downloads automatically and is verified against the release's SHA-256 checksum and application version. A verified staged download is reused across launches. When **Restart to update** appears, click it when convenient. Moondrop restores proxy settings, closes its engines, waits for the app to exit, replaces the JAR, and restarts using your separately installed Java. It keeps `moondrop.jar.previous` beside the JAR as a backup. This updater does not update your separate Java installation.
 
-If an update cannot install or launch, the helper keeps/restores the previous app. Logs are in the `updates` subfolder of Moondrop's data folder listed below. You can also close Moondrop and rename `moondrop.jar.previous` back to `moondrop.jar` for manual rollback.
+Portable updates require a writable app folder; move the extracted folder somewhere you own if needed. If an update cannot install or launch, the helper keeps/restores the previous app. Logs are in the `updates` subfolder of the data folder below. You can also close Moondrop and rename `moondrop.jar.previous` back to `moondrop.jar` for manual rollback. Older portable releases without the updater need one manual upgrade.
 
 ## If it will not open
 
-- **“Java not found” / “java is not recognized”:** install Java above, close and reopen your terminal, then check `java -version`. On Windows, make sure the installer added Java to PATH.
-- **Java 8 or `UnsupportedClassVersionError`:** the launcher is finding an older Java installation. Install Java 17+ and make sure `java -version` reports the newer version before trying again.
+- **Portable edition: “Java not found” / “java is not recognized”:** install Java above, close and reopen your terminal, then check `java -version`. On Windows, make sure the installer added Java to PATH.
+- **Portable edition: Java 8 or `UnsupportedClassVersionError`:** the launcher is finding an older Java installation. Install Java 17+ and make sure `java -version` reports the newer version before trying again.
 - **Double-clicking the JAR does nothing:** use the platform launcher or `java -jar moondrop.jar` in a terminal. A JAR file association is not required.
 - **Cannot find `moondrop.jar`:** extract the whole ZIP and keep the launcher beside the JAR. Run the command from that folder.
 - **No display / `HeadlessException` on Linux:** use a graphical desktop session and install the desktop JRE listed above.
@@ -168,14 +189,14 @@ If an update cannot install or launch, the helper keeps/restores the previous ap
 
 ## Remove Moondrop
 
-Disconnect and close the app, then delete the extracted Moondrop folder. For a Linux app-menu installation, also remove these files and folders (replace the data directory if you set `XDG_DATA_HOME`):
+Disconnect and close the app. On Windows, uninstall the installer edition through **Settings → Apps → Installed apps**. On macOS, move **Moondrop.app** from Applications to the Trash. These editions remove their private bundled runtime with the app. For portable downloads, delete the extracted Moondrop folder. For a Linux app-menu installation, also remove these files and folders (replace the data directory if you set `XDG_DATA_HOME`):
 
 - `~/.local/share/moondrop`
 - `~/.local/share/applications/moondrop.desktop`
 - `~/.local/share/icons/hicolor/scalable/apps/moondrop.svg`
 - `~/.local/bin/moondrop`
 
-Java is a separate installation and stays installed for other applications.
+Any separately installed Java used by the portable edition stays installed for other applications.
 
 If you also want to remove Moondrop's downloaded engine and saved state, delete its data folder only after disconnecting successfully:
 
