@@ -6,6 +6,12 @@ A small, independent Java desktop client for [Shadowmere](https://shadowmere.xyz
 
 ![Moondrop with country flags and Quick Connect](docs/preview.png)
 
+## Install
+
+Install **Java 17 or newer** separately (Java 21 LTS recommended), then download [Moondrop.zip](https://github.com/Sipper1236/moondrop/releases/tag/v0.1.0), extract it, and open the launcher for your operating system. **Java is not bundled with Moondrop.**
+
+[Step-by-step Java and Moondrop installation for Windows, macOS, and Linux](INSTALL.md) covers installers, package-manager commands, launching, and troubleshooting. You do not need Maven to run a download.
+
 ## Use
 
 1. Open Moondrop. The app loads the current active server list.
@@ -31,21 +37,21 @@ java -jar target/moondrop.jar
 
 The runnable JAR works on macOS (Apple Silicon and Intel), Windows (x64 and ARM64), and Linux x64. OS proxy automation is macOS/Windows only. The first engine download requires internet access. No accounts or credentials to type.
 
-## Native downloads / packaging
+## Portable downloads / packaging
 
-The GitHub Actions workflow builds a macOS Apple Silicon `.dmg`, macOS Intel `.dmg`, and Windows x64 portable `.zip`. These contain a Java runtime: end users do not need to install Java. On Windows, extract the entire folder and run `Moondrop.exe`.
+The same **Moondrop.zip** works on macOS (Apple Silicon and Intel), Windows (x64 and ARM64), and Linux x64. It includes `moondrop.jar`, platform launchers, instructions, and licenses. It contains **no Java runtime**. The standalone JAR is also available on the [release page](https://github.com/Sipper1236/moondrop/releases/tag/v0.1.0).
 
-Build on the target operating system:
+Developers can build the ZIP using JDK 17+ and Maven 3.9+:
 
 ```sh
-bash scripts/package.sh      # macOS: DMG; Linux: app image
+bash scripts/package.sh      # macOS / Linux
 ```
 
 ```powershell
-./scripts/package.ps1        # Windows: portable ZIP
+./scripts/package.ps1        # Windows
 ```
 
-Outputs go into `dist/`. Native packages must be built on their target OS/architecture. These development builds are unsigned; public distribution needs macOS Developer ID signing/notarization and Windows code signing. No installers have been published by this repository. The proxy engine is downloaded on first use rather than included in the native package.
+Output: `dist/Moondrop.zip`. Packaging uses an explicit file list, so local engine downloads, state, and runtimes stay out of the archive. The GitHub Actions workflow builds on Linux, macOS Apple Silicon, macOS Intel, and Windows, and tests the native networking engine. The engine downloads separately on first connection.
 
 ## Verification
 
@@ -66,7 +72,7 @@ Native macOS/Windows system-proxy behavior must be acceptance-tested on those pl
 - Windows: `%LOCALAPPDATA%/Shadowmere`
 - Linux: `~/.local/share/shadowmere-desktop`
 
-Moondrop keeps the original Shadowmere-named data folders for compatibility and recovery across the rename. Only one app instance can own the proxy settings. A durable snapshot is written before system settings change and removed after restoration. An interrupted session is recovered on next launch. A force-killed app can leave system proxy settings enabled until then; reopen Moondrop to restore them. Startup terminates leftover cores only when their executable and session-config path both identify this app's private data directory. If settings recovery fails, the snapshot is retained and a live listener is kept available while you retry Disconnect. Server passwords exist only in memory and temporary session configuration files, removed on disconnect and after startup recovery. No browsing history or server list is persisted.
+Moondrop keeps the original Shadowmere-named data folders for compatibility and recovery across the rename. Only one app instance can own the proxy settings. A durable snapshot is written before system settings change and removed after restoration. An interrupted session is recovered on next launch. A force-killed app can leave system proxy settings enabled until then; reopen Moondrop to restore them. Startup terminates leftover cores only when a private ownership record matches their PID, start time, and executable; session files must belong to this app's data directory. If settings recovery fails, the snapshot is retained and a live listener is kept available while you retry Disconnect. Server passwords exist only in memory and temporary session configuration files, removed on disconnect and after startup recovery. No browsing history or server list is persisted.
 
 ## Architecture and credits
 

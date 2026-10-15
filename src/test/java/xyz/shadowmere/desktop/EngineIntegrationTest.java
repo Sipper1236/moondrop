@@ -1,17 +1,39 @@
 package xyz.shadowmere.desktop;
 
 import com.sun.net.httpserver.HttpServer;
+import com.google.gson.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import java.net.*;
 import java.nio.file.*;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.io.IOException;
 import static org.junit.jupiter.api.Assertions.*;
 
 class EngineIntegrationTest {
     @TempDir Path directory;
     private int freePort() throws Exception {try(ServerSocket s=new ServerSocket(0,0,InetAddress.getLoopbackAddress())){return s.getLocalPort();}}
+    private Path core() {
+        String core=System.getProperty("engine.test.path","");
+        Assumptions.assumeTrue(!core.isEmpty()&&Files.isExecutable(Path.of(core)),"Set -Dengine.test.path for native engine tests");
+        return Path.of(core);
+    }
+    private Server server() throws Exception {
+        return new Server("test","127.0.0.1",freePort(),"chacha20-ietf-poly1305","test-only-password","","Local test","",true);
+    }
+    private Path ownership() throws Exception {
+        try(var files=Files.list(directory)) {
+            return files.filter(p->p.getFileName().toString().endsWith(".json.owner")).findFirst().orElseThrow();
+        }
+    }
+    private void assertListenerClosed(int port) throws Exception {
+        // A refused connection proves the listener closed without treating Windows
+        // TIME_WAIT as an active listener or rebinding with unsafe SO_REUSEADDR.
+        try(Socket socket=new Socket()) {
+            assertThrows(ConnectException.class,()->socket.connect(new InetSocketAddress("127.0.0.1",port),1000));
+        }
+    }
     @Test void encryptedRoundTripAndCleanup() throws Exception {
         String core=System.getProperty("engine.test.path","");
         Assumptions.assumeTrue(!core.isEmpty()&&Files.isExecutable(Path.of(core)),"Set -Dengine.test.path to run the real sing-box integration test");
@@ -37,7 +59,13 @@ class EngineIntegrationTest {
                 try {assertEquals("encrypted-round-trip",new String(request.getInputStream().readAllBytes()));}finally{request.disconnect();}
                 assertTrue(client.alive());
             }
+            assertListenerClosed(localPort);
             ProxyEngine.ensurePortFree(localPort);
+            // A user should be able to reconnect immediately after real traffic.
+            try(ProxyEngine next=new ProxyEngine(Path.of(core),directory)) {
+                next.start(Map.of(localPort,server),ignored->{});
+                assertTrue(next.alive());
+            }
             try(var files=Files.list(directory)){assertTrue(files.noneMatch(p->p.getFileName().toString().startsWith("session-")));}
         } finally {remote.destroy();if(!remote.waitFor(2,TimeUnit.SECONDS))remote.destroyForcibly();target.stop(0);}
     }
@@ -56,8 +84,78 @@ class EngineIntegrationTest {
             assertTrue(engine.alive());
             // Startup owns the instance lock before invoking this recovery path.
             ProxyEngine.recover(Path.of(core),directory);
-            assertFalse(engine.alive());ProxyEngine.ensurePortFree(port);
+            assertFalse(engine.alive());assertListenerClosed(port);ProxyEngine.ensurePortFree(port);
             try(var files=Files.list(directory)){assertTrue(files.noneMatch(p->p.getFileName().toString().startsWith("session-")));}
         }
+    }
+    @Test void ownershipIsPersistedBeforeStartReturnsAndRemovedOnClose() throws Exception {
+        Path core=core();
+        try(ProxyEngine engine=new ProxyEngine(core,directory)) {
+            engine.start(Map.of(freePort(),server()),ignored->{});
+            JsonObject record=JsonParser.parseString(Files.readString(ownership())).getAsJsonObject();
+            ProcessHandle child=ProcessHandle.of(record.get("pid").getAsLong()).orElseThrow();
+            assertEquals(child.info().startInstant().orElseThrow().toString(),record.get("started").getAsString());
+            assertEquals(core.toRealPath().toString(),record.get("executable").getAsString());
+            assertTrue(Files.isRegularFile(Path.of(record.get("config").getAsString())));
+        }
+        try(var files=Files.list(directory)) {assertTrue(files.noneMatch(p->p.getFileName().toString().startsWith("session-")));}
+    }
+    @Test void staleStartInstantNeverStopsAnUnrelatedPid() throws Exception {
+        Path core=core();
+        try(ProxyEngine engine=new ProxyEngine(core,directory)) {
+            engine.start(Map.of(freePort(),server()),ignored->{});
+            Path recordPath=ownership();
+            JsonObject record=JsonParser.parseString(Files.readString(recordPath)).getAsJsonObject();
+            record.addProperty("started",java.time.Instant.parse(record.get("started").getAsString()).minusSeconds(1).toString());
+            Files.writeString(recordPath,record.toString());
+            ProxyEngine.recover(core,directory);
+            assertTrue(engine.alive(),"A recycled PID must not authorize termination");
+            assertFalse(Files.exists(recordPath),"Stale metadata should be discarded");
+        }
+    }
+    @Test void matchingPidAndTimeWithoutMatchingExecutableNeverStopsProcess() throws Exception {
+        Path core=core();
+        String javaName=System.getProperty("os.name").startsWith("Windows")?"java.exe":"java";
+        Process unrelated=new ProcessBuilder(Path.of(System.getProperty("java.home"),"bin",javaName).toString(),
+            "-cp",System.getProperty("java.class.path"),SleepingProcess.class.getName()).start();
+        try(ProxyEngine engine=new ProxyEngine(core,directory)) {
+            engine.start(Map.of(freePort(),server()),ignored->{});
+            Path recordPath=ownership();
+            JsonObject record=JsonParser.parseString(Files.readString(recordPath)).getAsJsonObject();
+            record.addProperty("pid",unrelated.pid());
+            record.addProperty("started",unrelated.info().startInstant().orElseThrow().toString());
+            Files.writeString(recordPath,record.toString());
+            ProxyEngine.recover(core,directory);
+            assertTrue(unrelated.isAlive(),"PID and timestamp alone must never authorize a process kill");
+            assertTrue(engine.alive(),"The unrecorded engine must also remain untouched");
+        } finally {unrelated.destroyForcibly();unrelated.waitFor(2,TimeUnit.SECONDS);}
+    }
+    @Test void invalidSessionPathCannotAuthorizeTerminationOrDeleteOutsideDataDirectory() throws Exception {
+        Path core=core();
+        Path outside=Files.createTempFile("moondrop-foreign-", ".json");
+        Files.writeString(outside,"keep");
+        try(ProxyEngine engine=new ProxyEngine(core,directory)) {
+            engine.start(Map.of(freePort(),server()),ignored->{});
+            Path recordPath=ownership();
+            JsonObject record=JsonParser.parseString(Files.readString(recordPath)).getAsJsonObject();
+            record.addProperty("config",outside.toString());
+            Files.writeString(recordPath,record.toString());
+            assertThrows(IOException.class,()->ProxyEngine.recover(core,directory));
+            assertTrue(engine.alive());
+            assertEquals("keep",Files.readString(outside));
+        } finally {Files.deleteIfExists(outside);}
+    }
+    @Test void recoveryLeavesOtherDataDirectoryCoreRunning() throws Exception {
+        Path core=core();
+        try(ProxyEngine owned=new ProxyEngine(core,directory);ProxyEngine other=new ProxyEngine(core,directory.resolve("other"))) {
+            owned.start(Map.of(freePort(),server()),ignored->{});
+            other.start(Map.of(freePort(),server()),ignored->{});
+            ProxyEngine.recover(core,directory);
+            assertFalse(owned.alive());
+            assertTrue(other.alive(),"Never scan or stop another instance's engine");
+        }
+    }
+    public static final class SleepingProcess {
+        public static void main(String[] args) throws Exception {Thread.sleep(60_000);}
     }
 }

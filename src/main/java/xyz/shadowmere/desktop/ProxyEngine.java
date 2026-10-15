@@ -6,6 +6,9 @@ import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.nio.channels.FileChannel;
+import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
@@ -15,7 +18,8 @@ public final class ProxyEngine implements AutoCloseable {
     public static final int PORT = 17890;
     private final Path binary, directory;
     private Process process;
-    private Path config;
+    private Path config, ownership;
+    private record Ownership(int version, long pid, String started, String executable, String config) { }
     public ProxyEngine(Path binary, Path dataDir) { this.binary = binary; directory = dataDir; }
 
     static JsonObject configuration(Map<Integer,Server> bindings) {
@@ -41,11 +45,13 @@ public final class ProxyEngine implements AutoCloseable {
         if (bindings.isEmpty()) throw new IllegalArgumentException("No server selected");
         Files.createDirectories(directory);
         try {
-            try { config = Files.createTempFile(directory,"session-", ".json", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))); }
-            catch (UnsupportedOperationException e) { config = Files.createTempFile(directory,"session-", ".json"); }
+            try { config = Files.createTempFile(directory.toRealPath(),"session-", ".json", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))); }
+            catch (UnsupportedOperationException e) { config = Files.createTempFile(directory.toRealPath(),"session-", ".json"); }
             Files.writeString(config, configuration(bindings).toString(), StandardCharsets.UTF_8);
-            process = new ProcessBuilder(binary.toString(), "run", "-c", config.toString()).redirectErrorStream(true).start();
+            Path executable = binary.toRealPath();
+            process = new ProcessBuilder(executable.toString(), "run", "-c", config.toString()).redirectErrorStream(true).start();
             Process child = process;
+            saveOwnership(child, executable);
             Thread reader = new Thread(() -> {
                 try (BufferedReader in = child.inputReader()) { String line; int count = 0;
                     while ((line = in.readLine()) != null) if (++count <= 50) logs.accept("Engine: " + line.replaceAll("\\u001B\\[[;\\d]*m", ""));
@@ -77,42 +83,151 @@ public final class ProxyEngine implements AutoCloseable {
         } finally { connection.disconnect(); }
     }
 
+    /** Checks for a live listener, not lingering TCP TIME_WAIT connections.
+     * The core's bind is authoritative; this check never enables SO_REUSEADDR,
+     * which could silently share an existing Windows listener.
+     */
     public static void ensurePortFree(int port) throws IOException {
-        try (ServerSocket socket = new ServerSocket()) { socket.bind(new InetSocketAddress("127.0.0.1", port)); }
-        catch (IOException e) { throw new IOException("Port " + port + " is in use. Close the other local proxy and try again."); }
+        try (Socket socket = new Socket()) {
+            try { socket.connect(new InetSocketAddress("127.0.0.1", port), 500); }
+            catch (ConnectException refused) { return; }
+            catch (SocketTimeoutException busy) { throw occupied(port); }
+            catch (IOException failure) { throw new IOException("Could not check local proxy port " + port + ".", failure); }
+        }
+        throw occupied(port);
     }
 
-    /** Reaps only cores whose executable AND private session path identify this app's data directory. */
-    public static void recover(Path binary,Path directory) throws Exception {
-        Path expectedDirectory=directory.toAbsolutePath().normalize();
-        if(!Files.isRegularFile(binary)) return;
-        Path expectedBinary=binary.toRealPath();
-        for(ProcessHandle process:ProcessHandle.allProcesses().toList()) {
-            ProcessHandle.Info info=process.info();
-            if(info.command().isEmpty()||info.arguments().isEmpty())continue;
-            Path command;
-            try {command=Path.of(info.command().get()).toRealPath();}catch(IOException e){continue;}
-            if(!command.equals(expectedBinary))continue;
-            String[] args=info.arguments().get();
-            for(int i=0;i<args.length-1;i++) if(args[i].equals("-c")) {
-                Path session=Path.of(args[i+1]).toAbsolutePath().normalize();
-                String name=session.getFileName().toString();
-                if(!expectedDirectory.equals(session.getParent())||!name.startsWith("session-")||!name.endsWith(".json"))continue;
-                process.destroy();
-                try {process.onExit().get(2,TimeUnit.SECONDS);}
-                catch(TimeoutException e) {process.destroyForcibly();process.onExit().get(2,TimeUnit.SECONDS);}
-                Files.deleteIfExists(session);
-            }
+    private static IOException occupied(int port) {
+        return new IOException("Port " + port + " is in use. Close the other local proxy and try again.");
+    }
+
+    private void saveOwnership(Process child, Path executable) throws IOException {
+        ProcessHandle.Info info = child.info();
+        Instant started = info.startInstant().orElseThrow(() -> new IOException("Could not identify the engine's start time safely."));
+        String command = info.command().orElseThrow(() -> new IOException("Could not identify the engine executable safely."));
+        if (!Path.of(command).toRealPath().equals(executable)) {
+            throw new IOException("The launched engine executable could not be verified.");
         }
+        Ownership record = new Ownership(1, child.pid(), started.toString(), executable.toString(), config.toString());
+        Path metadata = config.resolveSibling(config.getFileName() + ".owner");
+        Path temp = privateTemp(config.getParent(), ".engine-owner-", ".tmp");
+        try {
+            byte[] json = new Gson().toJson(record).getBytes(StandardCharsets.UTF_8);
+            try (FileChannel channel = FileChannel.open(temp, StandardOpenOption.WRITE)) {
+                ByteBuffer bytes = ByteBuffer.wrap(json);
+                while (bytes.hasRemaining()) channel.write(bytes);
+                channel.force(true);
+            }
+            // Refuse startup rather than leave an unrecoverable child if atomic
+            // persistence is unavailable on the selected data filesystem.
+            Files.move(temp, metadata, StandardCopyOption.ATOMIC_MOVE);
+            ownership = metadata;
+        } finally { Files.deleteIfExists(temp); }
+    }
+
+    private static Path privateTemp(Path directory, String prefix, String suffix) throws IOException {
+        try { return Files.createTempFile(directory, prefix, suffix,
+            PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))); }
+        catch (UnsupportedOperationException ignored) { return Files.createTempFile(directory, prefix, suffix); }
+    }
+
+    /** Startup holds the instance lock. Kill only a recorded child with an exact
+     * PID, start instant and canonical executable match; arguments are unavailable
+     * from ProcessHandle on Windows and are deliberately not used.
+     */
+    public static void recover(Path binary, Path directory) throws Exception {
+        if (!Files.isDirectory(directory)) return;
+        Path expectedDirectory = directory.toRealPath();
+        Path expectedBinary = Files.isRegularFile(binary) ? binary.toRealPath() : null;
+        List<Path> records;
+        try (var files = Files.list(expectedDirectory)) {
+            records = files.filter(p -> p.getFileName().toString().startsWith("session-")
+                && p.getFileName().toString().endsWith(".json.owner")).toList();
+        }
+        for (Path metadata : records) {
+            if (!Files.isRegularFile(metadata, LinkOption.NOFOLLOW_LINKS) || Files.size(metadata) > 16_384) {
+                throw new IOException("An engine recovery record cannot be read safely.");
+            }
+            Ownership record;
+            Path session, recordedExecutable;
+            Instant started;
+            try {
+                record = new Gson().fromJson(Files.readString(metadata), Ownership.class);
+                if (record == null || record.version() != 1 || record.pid() <= 0) throw new IllegalArgumentException();
+                session = Path.of(record.config()).toAbsolutePath().normalize();
+                recordedExecutable = Path.of(record.executable()).toAbsolutePath().normalize();
+                started = Instant.parse(record.started());
+                String name = session.getFileName().toString();
+                if (!expectedDirectory.equals(session.getParent()) || !name.startsWith("session-")
+                    || !name.endsWith(".json") || !metadata.getFileName().toString().equals(name + ".owner")) {
+                    throw new IllegalArgumentException();
+                }
+            } catch (RuntimeException invalid) {
+                throw new IOException("An engine recovery record is invalid; no process was stopped.", invalid);
+            }
+            Optional<ProcessHandle> found = ProcessHandle.of(record.pid());
+            if (found.isPresent() && found.get().isAlive()) {
+                ProcessHandle child = found.get();
+                ProcessHandle.Info info = child.info();
+                // If inspection is unavailable, retain the record and let the user
+                // resolve the process manually instead of guessing its identity.
+                if (info.startInstant().isEmpty() || info.command().isEmpty()) {
+                    throw new IOException("Cannot safely identify the previous engine. Close it before reconnecting.");
+                }
+                boolean sameStart = info.startInstant().get().equals(started);
+                Path actualExecutable;
+                try { actualExecutable = Path.of(info.command().get()).toRealPath(); }
+                catch (IOException missing) { throw new IOException("Cannot verify the previous engine executable.", missing); }
+                if (sameStart && expectedBinary != null && expectedBinary.equals(recordedExecutable)
+                    && expectedBinary.equals(actualExecutable) && child.pid() != ProcessHandle.current().pid()) {
+                    // Recheck the start instant at the last possible point to avoid PID reuse.
+                    if (!child.info().startInstant().filter(started::equals).isPresent()) continue;
+                    terminate(child);
+                    if (child.isAlive()) throw new IOException("The previous engine could not be stopped. Try closing it manually.");
+                } else if (sameStart && expectedBinary == null && recordedExecutable.equals(actualExecutable)) {
+                    throw new IOException("The engine binary is missing. Restore it before recovering the previous session.");
+                }
+                // Any mismatch is a stale/foreign record, never permission to kill.
+            }
+            Files.deleteIfExists(metadata);
+            Files.deleteIfExists(session);
+        }
+        // Atomic-write remnants contain no credentials and never identify a child.
+        try (var files = Files.list(expectedDirectory)) {
+            for (Path temp : files.filter(p -> p.getFileName().toString().startsWith(".engine-owner-")
+                && p.getFileName().toString().endsWith(".tmp")).toList()) Files.deleteIfExists(temp);
+        }
+    }
+
+    private static void terminate(ProcessHandle child) {
+        boolean interrupted = Thread.interrupted();
+        try {
+            child.destroy();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (child.isAlive() && System.nanoTime() < deadline) {
+                try { child.onExit().get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS); }
+                catch (InterruptedException cancellation) { interrupted = true; }
+                catch (ExecutionException | TimeoutException ignored) { break; }
+            }
+            if (child.isAlive()) {
+                child.destroyForcibly();
+                deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+                while (child.isAlive() && System.nanoTime() < deadline) {
+                    try { child.onExit().get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS); }
+                    catch (InterruptedException cancellation) { interrupted = true; }
+                    catch (ExecutionException | TimeoutException ignored) { break; }
+                }
+            }
+        } finally { if (interrupted) Thread.currentThread().interrupt(); }
     }
 
     @Override public synchronized void close() {
         if (process != null) {
-            process.destroy();
-            try { if (!process.waitFor(2, TimeUnit.SECONDS)) { process.destroyForcibly(); process.waitFor(2,TimeUnit.SECONDS); } }
-            catch (InterruptedException e) { process.destroyForcibly(); Thread.currentThread().interrupt(); }
+            terminate(process.toHandle());
+            if (process.isAlive()) return; // Retain identity and recovery files if termination failed.
             process = null;
         }
+        if (ownership != null) { try { Files.deleteIfExists(ownership); } catch (IOException ignored) { } ownership = null; }
         if (config != null) { try { Files.deleteIfExists(config); } catch (IOException ignored) { } config = null; }
     }
 }
