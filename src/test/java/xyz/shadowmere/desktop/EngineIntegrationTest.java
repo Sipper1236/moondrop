@@ -56,7 +56,7 @@ class EngineIntegrationTest {
             {"log":{"level":"error"},"inbounds":[{"type":"shadowsocks","listen":"127.0.0.1","listen_port":%d,
             "method":"chacha20-ietf-poly1305","password":"test-only-password"}],"outbounds":[{"type":"direct"}]}
             """.formatted(ssPort));
-        Process remote=new ProcessBuilder(core,"run","-c",remoteConfig.toString()).redirectErrorStream(true).redirectOutput(directory.resolve("remote.log").toFile()).start();
+        Process remote=new ProcessBuilder(core,"run","-c",remoteConfig.toString()).redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start();
         try {
             long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);boolean ready=false;
             while(System.nanoTime()<deadline) {try(Socket s=new Socket("127.0.0.1",ssPort)){ready=true;break;}catch(Exception e){Thread.sleep(50);}}
