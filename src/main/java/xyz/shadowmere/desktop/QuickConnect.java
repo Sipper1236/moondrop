@@ -19,9 +19,13 @@ public final class QuickConnect {
 
     public Result find(List<Server> servers, Path binary, Path directory, Consumer<String> progress,
                        Consumer<ServerSpeedTester.Update> measurements) throws Exception {
+        return find(servers,binary,directory,progress,measurements,null);
+    }
+    public Result find(List<Server> servers, Path binary, Path directory, Consumer<String> progress,
+                       Consumer<ServerSpeedTester.Update> measurements, String nearbyCountry) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(16);
         try {
-            List<Server> selected = selectCandidates(servers, 256, new Random());
+            List<Server> selected = selectCandidates(servers, 256, new Random(), nearbyCountry);
             progress.accept("Checking " + selected.size() + " of " + servers.size() + " server addresses…");
             List<Server> shortlist;
             Set<Socket> sockets = ConcurrentHashMap.newKeySet();
@@ -35,7 +39,7 @@ public final class QuickConnect {
                         socket.connect(new InetSocketAddress(server.host(), server.port()), 1200);
                         return System.nanoTime() - start;
                     } finally { sockets.remove(socket); }
-                }, measurements);
+                }, measurements, nearbyCountry);
             } finally {
                 for (Socket socket : sockets) try { socket.close(); } catch (IOException ignored) { }
             }
@@ -109,9 +113,28 @@ public final class QuickConnect {
         return selected;
     }
 
+    /** Within each source, try approximate nearby countries before more distant locations. */
+    static List<Server> selectCandidates(List<Server> servers,int limit,Random random,String nearbyCountry) {
+        if(nearbyCountry==null)return selectCandidates(servers,limit,random);
+        List<Server> shuffled=new ArrayList<>(servers);Collections.shuffle(shuffled,random);
+        List<Server> ordered=ServerProximity.prioritize(shuffled,nearbyCountry);
+        if(ordered.size()<=limit)return ordered;
+        Map<String,Deque<Server>> sources=new LinkedHashMap<>();
+        for(Server server:ordered)sources.computeIfAbsent(server.sourceName(),ignored -> new ArrayDeque<>()).addLast(server);
+        List<Server> selected=new ArrayList<>();
+        while(selected.size()<limit&&sources.values().stream().anyMatch(group -> !group.isEmpty())) {
+            for(var group:sources.values())if(!group.isEmpty()&&selected.size()<limit)selected.add(group.removeFirst());
+        }
+        return ServerProximity.prioritize(selected,nearbyCountry);
+    }
+
     /** Only completed probes publish failures; queued or cancelled work stays unmeasured. */
     static List<Server> discover(List<Server> servers, long budgetNanos, TcpProbe probe,
                                  Consumer<ServerSpeedTester.Update> measurements) throws Exception {
+        return discover(servers,budgetNanos,probe,measurements,null);
+    }
+    static List<Server> discover(List<Server> servers,long budgetNanos,TcpProbe probe,
+                                 Consumer<ServerSpeedTester.Update> measurements,String nearbyCountry) throws Exception {
         ExecutorService discovery = Executors.newFixedThreadPool(16);
         List<Future<Candidate>> pending = new ArrayList<>();
         CompletionService<Candidate> completed = new ExecutorCompletionService<>(discovery);
@@ -133,14 +156,15 @@ public final class QuickConnect {
             }
             // Keep each source represented in HTTPS checks as well as the initial sample.
             // A large feed of fast TCP responders must not crowd out working encrypted paths.
-            Map<String,Deque<Candidate>> sources=new LinkedHashMap<>();
-            responsive.stream().sorted(Comparator.comparingLong(Candidate::nanos)).forEach(candidate ->
-                    sources.computeIfAbsent(candidate.server().sourceName(),ignored -> new ArrayDeque<>()).addLast(candidate));
+            Map<String,Deque<Server>> sources=new LinkedHashMap<>();
+            List<Server> tcpOrder=responsive.stream().sorted(Comparator.comparingLong(Candidate::nanos)).map(Candidate::server).toList();
+            for(Server server:ServerProximity.prioritize(tcpOrder,nearbyCountry))
+                sources.computeIfAbsent(server.sourceName(),ignored -> new ArrayDeque<>()).addLast(server);
             List<Server> shortlist=new ArrayList<>();
             while(shortlist.size()<20&&sources.values().stream().anyMatch(group -> !group.isEmpty())) {
-                for(var group:sources.values())if(!group.isEmpty()&&shortlist.size()<20)shortlist.add(group.removeFirst().server());
+                for(var group:sources.values())if(!group.isEmpty()&&shortlist.size()<20)shortlist.add(group.removeFirst());
             }
-            return List.copyOf(shortlist);
+            return ServerProximity.prioritize(shortlist,nearbyCountry);
         } finally {
             for (Future<Candidate> future : pending) future.cancel(true);
             discovery.shutdownNow();

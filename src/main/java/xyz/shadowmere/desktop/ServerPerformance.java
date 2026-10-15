@@ -13,10 +13,13 @@ public record ServerPerformance(State state, long millis, Instant checkedAt) {
     public static ServerPerformance verified(long millis) { return new ServerPerformance(State.VERIFIED, Math.max(0, millis), Instant.now()); }
     public static ServerPerformance failed() { return new ServerPerformance(State.FAILED, 0, Instant.now()); }
     public boolean successful() { return state == State.VERIFIED; }
+    public boolean completed() {
+        return (state == State.VERIFIED || state == State.FAILED) && millis >= 0 && !checkedAt.isAfter(Instant.now());
+    }
     public boolean fresh() {
-        if (state != State.VERIFIED && state != State.FAILED) return false;
+        if (!completed()) return false;
         Instant now = Instant.now();
-        return !checkedAt.isAfter(now) && checkedAt.plus(Duration.ofMinutes(successful() ? 30 : 5)).isAfter(now);
+        return !checkedAt.isAfter(now) && checkedAt.isAfter(now.minus(Duration.ofDays(7)));
     }
     public String label() {
         return switch (state) {

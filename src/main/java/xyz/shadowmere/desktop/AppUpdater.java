@@ -26,7 +26,7 @@ public final class AppUpdater {
     public AppUpdater(Path dataDir) { directory = dataDir.resolve("updates"); }
     public static String currentVersion() {
         String version = AppUpdater.class.getPackage().getImplementationVersion();
-        return version == null || version.isBlank() ? "0.4.1" : version;
+        return version == null || version.isBlank() ? "0.5.0" : version;
     }
 
     public Optional<Release> check(String currentVersion) throws Exception {

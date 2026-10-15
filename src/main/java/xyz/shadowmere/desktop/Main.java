@@ -23,6 +23,8 @@ public final class Main implements AppWindow.Actions {
     private record PendingUpdate(AppUpdater.Release release,Path jar) { }
     private volatile PendingUpdate pendingUpdate;
     private final PerformanceCache performanceCache;
+    private final ServerProximity proximity;
+    private volatile String nearbyCountry;
     private final PerformanceResults performance = new PerformanceResults();
     private final ExecutorService speedWorker = Executors.newSingleThreadExecutor(r -> {Thread t=new Thread(r,"speed-tests");t.setDaemon(true);return t;});
     private final AtomicInteger speedGeneration = new AtomicInteger();
@@ -41,7 +43,7 @@ public final class Main implements AppWindow.Actions {
     private FileChannel lockChannel;
     private FileLock lock;
 
-    private Main(Path data) { this.data=data; installer=new CoreInstaller(data); system=new SystemProxy(data);performanceCache=new PerformanceCache(data);updater=new AppUpdater(data); }
+    private Main(Path data) { this.data=data; installer=new CoreInstaller(data); system=new SystemProxy(data);performanceCache=new PerformanceCache(data);proximity=new ServerProximity(data);updater=new AppUpdater(data); }
 
     public static void main(String[] args) {
         if(args.length>0 && (args[0].equals("--install-engine")||args[0].equals("--smoke-test"))) {
@@ -54,7 +56,8 @@ public final class Main implements AppWindow.Actions {
                 if(!core.ready()) core.install(System.out::println);
                 if(args[0].equals("--smoke-test")) {
                     List<Server> list=new ServerCatalog().fetch().servers();
-                    QuickConnect.Result best=new QuickConnect().find(list,core.binary(),directory,System.out::println);
+                    String nearby=new ServerProximity(directory).locate().orElse(null);
+                    QuickConnect.Result best=new QuickConnect().find(list,core.binary(),directory,System.out::println,ignored -> { },nearby);
                     try(ProxyEngine proxy=new ProxyEngine(core.binary(),directory)) {
                         ProxyEngine.ensurePortFree(ProxyEngine.PORT);
                         proxy.start(Map.of(ProxyEngine.PORT,best.server()),System.out::println);
@@ -135,6 +138,9 @@ public final class Main implements AppWindow.Actions {
         if(!connected)ui(() -> window.setConnection("Loading servers","Getting encrypted Shadowsocks locations from four sources…",false));
         ServerCatalog.Result catalog=new ServerCatalog().fetch();
         List<Server> fresh=catalog.servers(); servers=fresh;
+        nearbyCountry=proximity.locate().orElse(null);
+        if(nearbyCountry!=null)log("Nearby locations tested first · approximate country "+new java.util.Locale("",nearbyCountry).getDisplayCountry(java.util.Locale.ENGLISH));
+        else log("Approximate location unavailable; testing without a distance preference.");
         performance.replaceAll(Map.of());
         try {performance.replaceAll(performanceCache.load(fresh));}catch(IOException e){log("Could not read saved latency results. Servers will be checked again.");}
         Map<String,ServerPerformance> saved=performance.snapshot();
@@ -173,7 +179,7 @@ public final class Main implements AppWindow.Actions {
             if(candidates.isEmpty())throw new IOException("No recently tested servers are working. Use Retest speeds or refresh the server list.");
             QuickConnect.Result result=new QuickConnect().find(candidates,installer.binary(),data,progress -> {
                 log(progress); ui(() -> window.setConnection("Finding a server",progress,false));
-            },update -> recordPerformance(update.server(),update.performance()));
+            },update -> recordPerformance(update.server(),update.performance()),nearbyCountry);
             checkCancelled();
             log("Fastest of "+result.tested()+" tested · "+result.server().displayName()+" · "+result.millis()+" ms HTTPS");
             connectNow(result.server(),useSystem,result.millis());
@@ -187,24 +193,25 @@ public final class Main implements AppWindow.Actions {
 
     private void startSpeedTests(boolean force) {
         cancelSpeedTests();
-        List<Server> pending=performance.pending(servers,force);
-        if(pending.isEmpty()) {ui(() -> window.setSpeedTesting(false,"Using cached latency results"));return;}
+        List<Server> pending=ServerProximity.prioritize(performance.pending(servers,force),nearbyCountry);
+        int reused=servers.size()-pending.size();
+        if(pending.isEmpty()) {ui(() -> window.setSpeedTesting(false,"Using "+reused+" saved checks · 7-day cache"));return;}
         int generation=speedGeneration.incrementAndGet();speedTesting=true;
-        ui(() -> window.setSpeedTesting(true,"Preparing latency checks…"));
+        ui(() -> window.setSpeedTesting(true,reused+" cached · "+pending.size()+" checks remaining…"));
         speedTask=speedWorker.submit(() -> {
             try {
                 prepareEngine();
                 if(speedGeneration.get()!=generation||closing.get()||Thread.currentThread().isInterrupted())return;
                 new ServerSpeedTester().test(pending,installer.binary(),data,update -> {
                     synchronized(speedLock) {if(speedGeneration.get()==generation&&!closing.get())recordPerformance(update.server(),update.performance());}
-                },progress -> ui(() -> {if(speedGeneration.get()==generation)window.setSpeedTesting(true,progress);}));
+                },progress -> ui(() -> {if(speedGeneration.get()==generation)window.setSpeedTesting(true,reused+" cached · "+progress);}));
             } catch(InterruptedException|CancellationException ignored) {Thread.currentThread().interrupt();}
             catch(Exception e) {if(speedGeneration.get()==generation&&!closing.get())log("Latency checks: "+safeMessage(e));}
             finally {
                 synchronized(speedLock) {
                 if(speedGeneration.get()==generation) {
                     speedTesting=false;resetPendingMeasurements();savePerformance();
-                    ui(() -> window.setSpeedTesting(false,"Latency results saved · fresh for 30 min"));
+                    ui(() -> window.setSpeedTesting(false,"Results saved · reused for 7 days"));
                 }
                 }
             }
@@ -216,7 +223,7 @@ public final class Main implements AppWindow.Actions {
         speedGeneration.incrementAndGet();speedTesting=false;
         Future<?> running=speedTask;if(running!=null)running.cancel(true);
         resetPendingMeasurements();savePerformance();
-        ui(() -> window.setSpeedTesting(false,"Latency · cached for 30 min"));
+        ui(() -> window.setSpeedTesting(false,"Progress saved · 7-day cache"));
         }
     }
 

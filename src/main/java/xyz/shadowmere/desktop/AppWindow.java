@@ -54,7 +54,7 @@ public final class AppWindow extends JFrame {
     private final JLabel updateStatus = label("", MUTED, 11);
     private boolean updateBusy;
     private String updateVersion;
-    private final JLabel speedProgress = label("Latency · cached for 30 min", MUTED, 11);
+    private final JLabel speedProgress = label("Latency · 7-day cache", MUTED, 11);
     private final Timer performanceRefresh = new Timer(150, e -> filter());
     private boolean speedTesting, rebuilding;
     private final JLabel count = label("Refresh to discover servers", MUTED, 12);
@@ -96,7 +96,7 @@ public final class AppWindow extends JFrame {
         });filters.add(country); filters.add(Box.createVerticalStrut(8)); sort.setMaximumSize(new Dimension(Integer.MAX_VALUE,36)); filters.add(sort); sort.addActionListener(e -> filter()); browser.add(filters,BorderLayout.NORTH);
         servers.setBackground(PANEL); servers.setForeground(TEXT); servers.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); servers.setFixedCellHeight(69); servers.setFixedCellWidth(280); servers.setCellRenderer(new ServerRenderer());
         JScrollPane scroll = new JScrollPane(servers); scroll.setBorder(BorderFactory.createEmptyBorder()); scroll.getViewport().setBackground(PANEL); browser.add(scroll,BorderLayout.CENTER);
-        JPanel listFooter = vertical(); JPanel counts = new JPanel(new BorderLayout(8,0)); counts.setOpaque(false); counts.add(count,BorderLayout.CENTER); retest.setMargin(new Insets(5,8,5,8)); retest.addActionListener(e -> actions.retestSpeeds()); counts.add(retest,BorderLayout.EAST); counts.setAlignmentX(Component.LEFT_ALIGNMENT); listFooter.add(counts); listFooter.add(Box.createVerticalStrut(6)); listFooter.add(speedProgress); speedProgress.setToolTipText("Verified HTTPS round-trip latency in milliseconds; lower is better. Successful results stay cached for 30 minutes; failures for 5 minutes."); browser.add(listFooter,BorderLayout.SOUTH);
+        JPanel listFooter = vertical(); JPanel counts = new JPanel(new BorderLayout(8,0)); counts.setOpaque(false); counts.add(count,BorderLayout.CENTER); retest.setToolTipText("Retest every server, including cached results. Use after changing networks or routes. Completed checks are saved even if testing stops."); retest.setMargin(new Insets(5,8,5,8)); retest.addActionListener(e -> actions.retestSpeeds()); counts.add(retest,BorderLayout.EAST); counts.setAlignmentX(Component.LEFT_ALIGNMENT); listFooter.add(counts); listFooter.add(Box.createVerticalStrut(6)); listFooter.add(speedProgress); speedProgress.setToolTipText("Verified HTTPS round-trip latency in milliseconds; lower is better. Results, including failures, are reused for 7 days and saved across restarts. Only missing, changed or expired servers are checked automatically."); browser.add(listFooter,BorderLayout.SOUTH);
         JPanel right = new JPanel(new BorderLayout(0,18)); right.setOpaque(false); body.add(right);
         JPanel connection = panel(new BorderLayout(0,10)); connection.setBorder(new EmptyBorder(16,20,16,20)); right.add(connection,BorderLayout.NORTH);
         JPanel state = vertical(); state.add(label("YOUR CONNECTION",MUTED,11)); state.add(Box.createVerticalStrut(10)); state.add(status); state.add(Box.createVerticalStrut(8)); state.add(detail); connection.add(state,BorderLayout.NORTH);
@@ -161,7 +161,7 @@ public final class AppWindow extends JFrame {
     }
     public void setPerformance(Server server,ServerPerformance value){performance.put(server,value);if(!performanceRefresh.isRunning())performanceRefresh.start();}
     public void clearPerformance(){performance.clear();performanceRefresh.stop();filter();}
-    public void setSpeedTesting(boolean running,String progress){speedTesting=running;retest.setText(running?"Stop testing":"Retest speeds");speedProgress.setText(progress!=null&&!progress.isBlank()?progress:running?"Testing latency…":"Latency · cached for 30 min");updateControls();}
+    public void setSpeedTesting(boolean running,String progress){speedTesting=running;retest.setText(running?"Stop testing":"Retest speeds");retest.setToolTipText(running?"Stop testing and keep completed results. Automatic checks resume missing results on the next launch.":"Retest every server, including cached results. Use after changing networks or routes.");speedProgress.setText(progress!=null&&!progress.isBlank()?progress:running?"Testing latency · progress saved…":"Latency · 7-day cache");updateControls();}
     public void setUpdateStatus(String text,boolean running){
         updateBusy=running;
         updateStatus.setText(text==null?"":text);
@@ -210,7 +210,7 @@ public final class AppWindow extends JFrame {
         public Component getListCellRendererComponent(JList<? extends Server> list,Server s,int index,boolean selected,boolean focus){setBackground(selected?new Color(44,66,65):PANEL);icon.setText(null);icon.setIcon(FlagIcons.get(s.country()));title.setText(s.countryName());sub.setText(source(s)+" · "+s.displayName());
             ServerPerformance result=performanceFor(s); latency.setText(result.label());
             latency.setForeground(result.successful()?(result.fresh()?MINT:MUTED):result.state()==ServerPerformance.State.FAILED?new Color(220,143,136):MUTED);
-            String tooltip=result.state()==ServerPerformance.State.UNTESTED?"Latency has not been tested yet":result.state()==ServerPerformance.State.TESTING?"Checking verified HTTPS round-trip latency…": "Latency checked "+DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(result.checkedAt())+(result.fresh()?" · cached":" · expired")+". Lower milliseconds is better.";
+            String tooltip=result.state()==ServerPerformance.State.UNTESTED?"Latency has not been tested yet":result.state()==ServerPerformance.State.TESTING?"Checking verified HTTPS round-trip latency…": "Latency checked "+DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(result.checkedAt())+(result.fresh()?" · cached":" · saved, awaiting recheck")+". Lower milliseconds is better.";
             setToolTipText(tooltip);return this;}
     }
     /** Replaces a full feed in a bounded number of events, rather than one event per row. */

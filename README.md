@@ -93,7 +93,7 @@ java -version
 
 ### 2. Download Moondrop
 
-1. Open the [Moondrop v0.4.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.4.1). This is a prerelease.
+1. Open the [Moondrop v0.5.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.5.0). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 
@@ -132,11 +132,15 @@ For a portable launch without installing a shortcut, run `chmod +x launch-linux.
 
 ### 4. Connect
 
+New and expired checks run **nearby first**: your approximate country comes from a direct HTTPS lookup at [IPWHOIS](https://ipwhois.io/documentation), cached locally for 24 hours. Only the country code and lookup time are saved. Moondrop compares reported server countries using country-center distances; unknown locations come last. If lookup fails, Moondrop reuses the saved country; without one, testing continues without a distance preference. A VPN or upstream proxy can affect the detected country. To override it, launch with an ISO country code, for example `java -Dmoondrop.country=CA -jar moondrop.jar`. This changes test order; measured HTTPS latency still decides the fastest verified connection.
+
 Moondrop combines encrypted Shadowsocks entries from [Shadowmere](https://shadowmere.xyz/), [GFP](https://github.com/gfpcom/free-proxy-list), [V2rayCollector](https://github.com/MhdiTaheri/V2rayCollector), and [Morpheus](https://github.com/morpheusadam/v2ray-config). Only their Shadowsocks feeds are imported: HTTP, SOCKS, VLESS, VMess, Trojan, unencrypted entries, and unsupported plugins/ciphers are excluded. Identical connections are deduplicated across sources. Rows show the source; search for `GFP`, `V2rayCollector`, `Morpheus`, or `Shadowmere` to narrow the list. If one source fails, the others still load. Country flags reflect source labels when provided; unknown locations remain unknown.
 
-Each server shows verified HTTPS latency in milliseconds; lower is faster. Tests run in the background and the list defaults to **Fastest first**. Successful results are saved for **30 minutes**, and failed checks for **5 minutes**, so reopening or refreshing Moondrop reuses fresh measurements. Hover a result to see when it was measured. Use **Retest speeds** to check again, or **Stop testing** to cancel.
+Each server shows verified HTTPS latency in milliseconds; lower is faster. Tests run in the background and the list defaults to **Fastest first**. Completed results, including failed checks, are cached locally for **7 days**. Results are saved as testing progresses, so closing and reopening Moondrop resumes missing checks instead of starting the full scan again. Automatic testing checks only new, changed, or expired servers. Older measurements remain visible until replaced. Hover a result to see when it was measured. Use **Stop testing** to pause; completed checks stay saved.
 
-Click **Quick Connect**. Moondrop automatically connects to the fastest tested server that successfully completes its HTTPS checks. Without cached results it samples up to 256 candidates across sources and countries, limits initial address checks to eight seconds, and compares HTTPS latency through up to 20 responsive candidates. It uses a fresh cached ranking when available and verifies the selected connection again. This is the fastest server tested, not a promise about every server or download speed. Failed checks are excluded from Quick Connect until their cache expires or you retest. An HTTPS check confirms that a server works from your current network; it cannot guarantee censorship bypass on another network.
+Click **Quick Connect**. Moondrop uses the saved latency ranking by default and verifies the selected server again before connecting. Without a usable cached result it samples up to 256 candidates across sources and countries, limits initial address checks to eight seconds, and compares HTTPS latency through up to 20 responsive candidates. This is the fastest server tested, not a promise about every server or download speed. Failed checks are excluded until they expire or you retest.
+
+The cache measures latency from **your machine and network**; it is not a shared global ranking. After changing networks or routes, use **Retest speeds** to force a fresh check of every server, including cached successes and failures. An HTTPS check confirms that a server works from your current network; it cannot guarantee censorship bypass on another network.
 
 On the first connection, Moondrop downloads its separate **sing-box networking engine** from the official upstream release and verifies its checksum. This is not a Java installation. The first launch and engine download need working internet access.
 
@@ -197,9 +201,9 @@ This is an application proxy, not a VPN or TUN tunnel. Apps that ignore system p
 
 ## Quick Connect
 
-Each server row shows measured HTTPS latency, with **Fastest first** sorting. Background testing keeps the list usable. Results are cached to disk for 30 minutes (failed checks: 5 minutes); Quick Connect reuses fresh rankings and verifies the chosen connection again. **Retest speeds** bypasses the cache. These are latency measurements, not bandwidth estimates.
+Each server row shows measured HTTPS latency, with **Fastest first** sorting. Completed checks, including failures, are cached locally for **7 days** and saved as the scan progresses. Reopening Moondrop resumes missing checks; automatic testing checks only new, changed, or expired servers. Older measurements remain visible until replaced. Quick Connect uses the saved ranking by default and verifies the chosen connection again. **Retest speeds** forces a fresh scan of every server. The cache reflects your machine and network, not a shared global ranking; retest after changing networks or routes. These are latency measurements, not bandwidth estimates.
 
-When no fresh cached server succeeds, Quick Connect samples up to 256 candidates across sources and countries, spends up to eight seconds checking TCP responsiveness, then measures an actual HTTPS request through up to 20 responsive Shadowsocks endpoints. Both stages keep sources represented so a large feed cannot crowd out smaller ones. It picks the lowest measured HTTPS time among successful tests and verifies the selected connection again before marking it connected. This means **fastest tested**, not a guaranteed globally fastest server or a bandwidth benchmark. Measurements use Google's HTTPS connectivity endpoint; its availability can affect results. Cancel stops the search and closes its temporary engine. A refresh discovers new servers; there is no background subscription polling or silent server switching.
+When no cached server succeeds, Quick Connect samples up to 256 candidates across sources and countries, spends up to eight seconds checking TCP responsiveness, then measures an actual HTTPS request through up to 20 responsive Shadowsocks endpoints. Both stages keep sources represented so a large feed cannot crowd out smaller ones. It picks the lowest measured HTTPS time among successful tests and verifies the selected connection again before marking it connected. This means **fastest tested**, not a guaranteed globally fastest server or a bandwidth benchmark. Measurements use Google's HTTPS connectivity endpoint; its availability can affect results. Cancel stops the search and closes its temporary engine. A refresh discovers new servers; there is no background subscription polling or silent server switching.
 
 ## Run from source
 
@@ -214,7 +218,7 @@ The runnable JAR works on macOS (Apple Silicon and Intel), Windows (x64 and ARM6
 
 ## Portable downloads / packaging
 
-The same **Moondrop.zip** works on macOS (Apple Silicon and Intel), Windows (x64 and ARM64), and Linux x64. It includes `moondrop.jar`, platform launchers, the Linux user installer, `moondrop.desktop`, `moondrop.svg`, instructions, and licenses. It contains **no Java runtime**. The standalone JAR is also available on the [release page](https://github.com/Sipper1236/moondrop/releases/tag/v0.4.1).
+The same **Moondrop.zip** works on macOS (Apple Silicon and Intel), Windows (x64 and ARM64), and Linux x64. It includes `moondrop.jar`, platform launchers, the Linux user installer, `moondrop.desktop`, `moondrop.svg`, instructions, and licenses. It contains **no Java runtime**. The standalone JAR is also available on the [release page](https://github.com/Sipper1236/moondrop/releases/tag/v0.5.0).
 
 Developers can build the ZIP using JDK 17+ and Maven 3.9+:
 

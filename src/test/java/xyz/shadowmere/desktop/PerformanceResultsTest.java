@@ -9,24 +9,24 @@ class PerformanceResultsTest {
     private Server server(int number) {
         return new Server("" + number, "127.0.0.1", 8000 + number, "aes-256-gcm", "password", "", "", "", true);
     }
-    @Test void freshCacheSkipsChecksAndRanksOnlyCurrentSuccesses() {
+    @Test void cacheSkipsCompletedChecksAndReusesHistoricalSuccesses() {
         Server fast = server(1), slow = server(2), stale = server(3), failed = server(4), unknown = server(5);
         var results = new PerformanceResults();
         results.replaceAll(Map.of(
             PerformanceCache.serverKey(fast), ServerPerformance.verified(30),
             PerformanceCache.serverKey(slow), ServerPerformance.verified(90),
-            PerformanceCache.serverKey(stale), new ServerPerformance(ServerPerformance.State.VERIFIED, 1, Instant.now().minusSeconds(1801)),
+            PerformanceCache.serverKey(stale), new ServerPerformance(ServerPerformance.State.VERIFIED, 1, Instant.now().minusSeconds(7*86400+1)),
             PerformanceCache.serverKey(failed), ServerPerformance.failed()));
         List<Server> all = List.of(slow, stale, fast, failed, unknown);
         assertEquals(List.of(stale, unknown), results.pending(all, false));
         assertEquals(all, results.pending(all, true));
-        assertEquals(List.of(fast, slow), results.ranked(all));
+        assertEquals(List.of(stale, fast, slow), results.ranked(all));
     }
     @Test void quickConnectSkipsFreshFailuresButRetriesExpiredFailures() {
         var results = new PerformanceResults();
         Server failed = server(1), expired = server(2), unknown = server(3);
         results.record(failed, ServerPerformance.failed());
-        results.record(expired, new ServerPerformance(ServerPerformance.State.FAILED, 0, Instant.now().minusSeconds(301)));
+        results.record(expired, new ServerPerformance(ServerPerformance.State.FAILED, 0, Instant.now().minusSeconds(7*86400+1)));
         assertEquals(List.of(expired, unknown), results.quickCandidates(List.of(failed, expired, unknown)));
     }
     @Test void forcedRetestKeepsCompletedCacheAndCancellationRestoresIt() {

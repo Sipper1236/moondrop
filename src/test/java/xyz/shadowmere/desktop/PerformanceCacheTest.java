@@ -18,15 +18,34 @@ class PerformanceCacheTest {
         assertEquals(243, new PerformanceCache(directory).load(List.of(server)).get(key).millis());
         assertTrue(new PerformanceCache(directory).load(List.of(server("changed"))).isEmpty());
     }
-    @Test void completedOnlyWithDifferentSuccessAndFailureExpiry() throws Exception {
+    @Test void completedChecksRemainFreshLongEnoughForAFullScan() throws Exception {
         var cache = new PerformanceCache(directory); String key = PerformanceCache.serverKey(server("one"));
         assertTrue(new ServerPerformance(ServerPerformance.State.VERIFIED, 10, Instant.now().minusSeconds(600)).fresh());
-        assertFalse(new ServerPerformance(ServerPerformance.State.FAILED, 0, Instant.now().minusSeconds(600)).fresh());
+        assertTrue(new ServerPerformance(ServerPerformance.State.FAILED, 0, Instant.now().minusSeconds(6*86400)).fresh());
         cache.save(Map.of(key, ServerPerformance.testing()));
         assertTrue(cache.load(List.of(server("one"))).isEmpty());
         cache.save(Map.of(key, ServerPerformance.failed()));
         assertEquals(ServerPerformance.State.FAILED, cache.load(List.of(server("one"))).get(key).state());
-        assertFalse(new ServerPerformance(ServerPerformance.State.VERIFIED, 10, Instant.now().minusSeconds(1801)).fresh());
+        assertFalse(new ServerPerformance(ServerPerformance.State.VERIFIED, 10, Instant.now().minusSeconds(7*86400+1)).fresh());
+    }
+    @Test void keepsOldCompletedResultsAndRetainsTemporarilyAbsentSources() throws Exception {
+        var cache=new PerformanceCache(directory);Server old=server("old"),other=server("other");
+        var historical=new ServerPerformance(ServerPerformance.State.VERIFIED,42,Instant.now().minusSeconds(30*86400));
+        cache.save(Map.of(PerformanceCache.serverKey(old),historical));
+        assertEquals(historical,cache.load(List.of(old)).get(PerformanceCache.serverKey(old)));
+        cache.save(Map.of(PerformanceCache.serverKey(other),ServerPerformance.failed()));
+        assertEquals(2,cache.load(List.of(old,other)).size());
+        cache.save(Map.of(PerformanceCache.serverKey(old),ServerPerformance.testing()));
+        assertEquals(historical,cache.load(List.of(old)).get(PerformanceCache.serverKey(old)));
+    }
+    @Test void invalidRecordsDoNotHideValidCheckpointsOrLeakFutureAndTransientResults() throws Exception {
+        Server valid=server("valid"),bad=server("bad"),future=server("future");var cache=new PerformanceCache(directory);
+        cache.save(Map.of(PerformanceCache.serverKey(valid),ServerPerformance.verified(12),
+                PerformanceCache.serverKey(future),new ServerPerformance(ServerPerformance.State.FAILED,0,Instant.now().plusSeconds(60))));
+        Path file=directory.resolve("server-performance.json");
+        var root=com.google.gson.JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+        root.getAsJsonObject("entries").addProperty(PerformanceCache.serverKey(bad),"broken");Files.writeString(file,root.toString());
+        assertEquals(Set.of(PerformanceCache.serverKey(valid)),cache.load(List.of(valid,bad,future)).keySet());
     }
     @Test void retainsMeasurementsForLargeAdditionalFeed() throws Exception {
         List<Server> servers=new ArrayList<>();Map<String,ServerPerformance> values=new HashMap<>();

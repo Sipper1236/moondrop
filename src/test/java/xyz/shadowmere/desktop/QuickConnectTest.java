@@ -30,6 +30,22 @@ class QuickConnectTest {
         for(String source:List.of("Shadowmere","GFP","V2rayCollector"))
             assertEquals(85,selected.stream().filter(s->s.sourceName().equals(source)).count());
     }
+    @Test void nearbySelectionPrioritizesLocalCountryWhileKeepingSourcesRepresented() {
+        List<Server> servers=new ArrayList<>();
+        for(String prefix:List.of("gfp:","morpheus:"))for(int i=0;i<100;i++) {
+            servers.add(server(prefix+"remote"+i,"JP"));servers.add(server(prefix+"local"+i,"CA"));
+        }
+        var selected=QuickConnect.selectCandidates(servers,20,new Random(1),"CA");
+        assertEquals(20,selected.size());assertTrue(selected.stream().allMatch(s->s.country().equals("CA")));
+        assertEquals(10,selected.stream().filter(s->s.sourceName().equals("GFP")).count());
+    }
+    @Test void nearbyHttpsShortlistPrefersDistanceOverTcpHandshakeTime() throws Exception {
+        List<Server> servers=new ArrayList<>();
+        for(int i=0;i<30;i++)servers.add(server("gfp:remote"+i,"JP"));
+        for(int i=0;i<20;i++)servers.add(server("gfp:near"+i,"CA"));
+        var shortlist=QuickConnect.discover(servers,TimeUnit.SECONDS.toNanos(2),s->s.country().equals("CA")?100:1,u->fail(),"CA");
+        assertEquals(20,shortlist.size());assertTrue(shortlist.stream().allMatch(s->s.country().equals("CA")));
+    }
     @Test void smallListsRetainEveryCandidate() {
         var servers = List.of(server("a", "CA"), server("gfp:b", "DE"));
         assertEquals(servers, QuickConnect.selectCandidates(servers, 256, new Random(1)));

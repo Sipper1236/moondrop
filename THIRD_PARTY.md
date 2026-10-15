@@ -14,3 +14,6 @@ The shaded JAR includes dependency license/notice files under META-INF. Moondrop
 - **GetFreeProxy / gfpcom free-proxy-list** — MIT, https://github.com/gfpcom/free-proxy-list. Public Shadowsocks subscription fetched at runtime; no upstream code or server list is bundled.
 - **V2rayCollector**, MhdiTaheri — MIT, https://github.com/MhdiTaheri/V2rayCollector. Public Shadowsocks subscription fetched at runtime; no upstream code or server list is bundled.
 - **morpheusadam/v2ray-config** — public Shadowsocks bundle fetched at runtime from https://github.com/morpheusadam/v2ray-config. No upstream code or server list is bundled.
+
+- **Google DSPL country coordinates** — BSD-3-Clause, https://github.com/google/dspl/blob/master/samples/google/canonical/countries.csv. Bundled country-center data for approximate proximity ordering; license in `src/main/resources/geography/LICENSE.txt`.
+- **IPWHOIS** — https://ipwhois.io/documentation. Runtime HTTPS lookup of approximate country; only the country code and lookup time are cached, without an IP address.

@@ -24,31 +24,40 @@ public final class PerformanceCache {
         } catch (NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
     }
     public Map<String,ServerPerformance> load(List<Server> servers) throws IOException {
-        Map<String,ServerPerformance> results = new HashMap<>();
-        if (!Files.isRegularFile(file) || Files.size(file) > MAX_BYTES) return results;
-        Set<String> wanted = new HashSet<>();
-        for (Server server : servers) wanted.add(serverKey(server));
-        try (var input = Files.newInputStream(file)) {
-            byte[] bytes = input.readNBytes(MAX_BYTES + 1);
-            if (bytes.length > MAX_BYTES) return results;
-            JsonObject root = JsonParser.parseString(new String(bytes, StandardCharsets.UTF_8)).getAsJsonObject();
-            if (root.get("version").getAsInt() != 1) return results;
-            JsonObject entries = root.getAsJsonObject("entries");
-            if (entries.size() > MAX_ENTRIES) return results;
-            for (var entry : entries.entrySet()) {
-                if (!wanted.contains(entry.getKey())) continue;
-                JsonObject item = entry.getValue().getAsJsonObject();
-                ServerPerformance.State state = ServerPerformance.State.valueOf(item.get("state").getAsString());
-                long millis = item.get("millis").getAsLong();
-                ServerPerformance performance = new ServerPerformance(state, millis, Instant.parse(item.get("checkedAt").getAsString()));
-                if (millis >= 0 && performance.fresh()) results.put(entry.getKey(), performance);
-            }
-        } catch (RuntimeException invalid) { results.clear(); }
+        Map<String,ServerPerformance> results=readCompleted();
+        Set<String> wanted=new HashSet<>();for(Server server:servers)wanted.add(serverKey(server));
+        results.keySet().retainAll(wanted);
         return results;
     }
-    public void save(Map<String,ServerPerformance> values) throws IOException {
+    private Map<String,ServerPerformance> readCompleted() throws IOException {
+        Map<String,ServerPerformance> results=new HashMap<>();
+        if(!Files.isRegularFile(file)||Files.size(file)>MAX_BYTES)return results;
+        try(var input=Files.newInputStream(file)) {
+            byte[] bytes=input.readNBytes(MAX_BYTES+1);if(bytes.length>MAX_BYTES)return results;
+            JsonObject root=JsonParser.parseString(new String(bytes,StandardCharsets.UTF_8)).getAsJsonObject();
+            if(root.get("version").getAsInt()!=1)return results;
+            JsonObject entries=root.getAsJsonObject("entries");if(entries.size()>MAX_ENTRIES)return results;
+            for(var entry:entries.entrySet()) {
+                try {
+                    if(!entry.getKey().matches("[0-9a-f]{64}"))continue;
+                    JsonObject item=entry.getValue().getAsJsonObject();
+                    ServerPerformance value=new ServerPerformance(ServerPerformance.State.valueOf(item.get("state").getAsString()),
+                            item.get("millis").getAsLong(),Instant.parse(item.get("checkedAt").getAsString()));
+                    if(value.completed())results.put(entry.getKey(),value);
+                }catch(RuntimeException invalidEntry){ /* Keep valid neighbouring checkpoints. */ }
+            }
+        }catch(RuntimeException invalidDocument){results.clear();}
+        return results;
+    }
+    public synchronized void save(Map<String,ServerPerformance> values) throws IOException {
+        // A temporarily missing feed must not erase its expensive completed measurements.
+        Map<String,ServerPerformance> merged=readCompleted();
+        values.forEach((key,value) -> {
+            if(key==null||!key.matches("[0-9a-f]{64}")||value==null||!value.completed())return;
+            merged.merge(key,value,(old,next)->next.checkedAt().isBefore(old.checkedAt())?old:next);
+        });
         JsonObject entries = new JsonObject();
-        values.entrySet().stream().filter(e -> e.getKey().matches("[0-9a-f]{64}") && e.getValue() != null && e.getValue().fresh())
+        merged.entrySet().stream()
             .sorted(Comparator.comparing((Map.Entry<String,ServerPerformance> e) -> e.getValue().checkedAt()).reversed())
             .limit(MAX_ENTRIES).forEach(e -> {
                 var value = e.getValue(); JsonObject item = new JsonObject();

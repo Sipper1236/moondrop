@@ -45,7 +45,7 @@ public final class PerformanceResults {
     public synchronized List<Server> ranked(List<Server> servers) {
         return servers.stream().filter(server -> {
             ServerPerformance result = completed.get(PerformanceCache.serverKey(server));
-            return result != null && result.successful() && result.fresh();
+            return result != null && result.successful() && result.completed();
         }).sorted(Comparator.comparingLong(server -> completed.get(PerformanceCache.serverKey(server)).millis())).toList();
     }
     public synchronized List<Server> quickCandidates(List<Server> servers) {
