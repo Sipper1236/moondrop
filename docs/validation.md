@@ -1,3 +1,16 @@
+# Usability and Advanced mode — 2026-10-16
+
+Moondrop 0.7.0 was checked locally on Linux with Java 17.
+
+- Full suite: 134 tests, zero failures; 20 engine-dependent cases initially skipped.
+- Re-ran all three native engine test classes with the app’s sing-box binary: 22 tests passed, none skipped, including the 20 engine-dependent cases.
+- Six GUI scenarios under Xvfb cover Connect/Cancel/Disconnect, the system proxy default, Advanced mode visibility and preference preservation, first-run testing feedback, expandable details, test age, and forced retesting from an error dialog.
+- Added regressions for connecting before download tests complete, excluding stale/failed cached connections, retry cancellation, and diagnostic credential exclusion.
+- Inspected the simplified layout using example servers and measurements; `preview.png` is an interface fixture, not a live server benchmark.
+- GitHub Actions runs native encrypted connection and bundled updater checks on Linux, Windows x64, macOS Apple Silicon, and macOS Intel. The Linux job also runs the GUI scenarios under Xvfb. These automated checks do not validate browser-specific system proxy behavior or macOS network permission prompts.
+
+Earlier validation notes follow as historical records.
+
 # Local validation — 2026-10-15
 
 Validated on Linux x64, Java 17, sing-box 1.14.3. This machine already had its own external TUN proxy running; it was left unchanged.

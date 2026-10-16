@@ -4,6 +4,7 @@ import com.formdev.flatlaf.FlatDarkLaf;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.datatransfer.StringSelection;
 import java.io.IOException;
 import java.nio.channels.*;
 import java.nio.file.*;
@@ -41,6 +42,8 @@ public final class Main implements AppWindow.Actions {
     private volatile Future<?> task;
     private volatile ProxyEngine engine;
     private volatile boolean connected;
+    private volatile String lastOperation="Starting";
+    private volatile String lastErrorCategory="None";
     private AppWindow window;
     private FileChannel lockChannel;
     private FileLock lock;
@@ -156,7 +159,7 @@ public final class Main implements AppWindow.Actions {
     @Override public void refresh() {submit("Refreshing servers",this::loadServers);}
     private void loadServers() throws Exception {
         cancelSpeedTests();
-        if(!connected)ui(() -> window.setConnection("Loading servers","Getting encrypted proxy locations from four sources…",false));
+        if(!connected)ui(() -> window.setConnection("Loading servers","Getting available encrypted proxy locations…",false));
         ServerCatalog.Result catalog=new ServerCatalog().fetch();
         List<Server> fresh=catalog.servers(); servers=fresh;
         nearbyCountry=settings.nearbyFirst()?proximity.locate().orElse(null):null;
@@ -168,7 +171,7 @@ public final class Main implements AppWindow.Actions {
         ui(() -> {
             window.clearPerformance();window.setServers(eligibleServers());
             for(Server server:fresh) {ServerPerformance p=saved.get(PerformanceCache.serverKey(server));if(p!=null)window.setPerformance(server,p);}
-            if(!connected)window.setConnection("Disconnected","Choose Quick Connect or select a location.",false);
+            if(!connected)window.setConnection("Disconnected","Choose Connect to find your best connection.",false);
         });
         log("Updated · "+fresh.size()+" protected proxy servers");
         catalog.counts().forEach((source,count) -> log(source+" · "+count+" unique servers"));
@@ -182,35 +185,55 @@ public final class Main implements AppWindow.Actions {
         cancelSpeedTests();
         submit("Finding a server", () -> {
             try {
+            connectionStage("Checking saved servers","Looking for your best previously tested connection…");
             ensureEngine();
             if(servers.isEmpty()) loadServers();
             cancelSpeedTests();
             List<Server> eligible=eligibleServers();
             if(eligible.isEmpty())throw new IOException("No enabled protocols have servers. Enable a protocol in Settings or refresh the server list.");
-            List<Server> ranked=performance.ranked(eligible).stream().limit(3).toList();
+            List<Server> ranked=performance.connectionCandidates(eligible,3);
             for(Server cached:ranked) {
-                ServerPerformance quality=performance.snapshot().get(PerformanceCache.serverKey(cached));
-                if(quality==null||!quality.hasQuality()||!quality.throughputFresh())break;
                 checkCancelled();
                 ProxyEngine.ensurePortFree(ProxyEngine.PORT);
+                connectionStage("Checking saved servers","Verifying a saved connection in "+cached.countryName()+"…");
                 try {connectNow(cached,useSystem,null);log("Used cached server ranking; connection verified again.");return;}
                 catch(Exception failure) {
-                    if(Thread.currentThread().isInterrupted()||closing.get()||system.hasRecovery())throw failure;
-                    ServerPerformance result=performance.get(cached);
-                    if(result==null||result.state()!=ServerPerformance.State.FAILED)throw failure;
+                    if(!retryableServerFailure(cached,failure))throw failure;
+                    connectionStage("Trying another server","The saved server is unavailable. Checking another connection…");
                 }
             }
             List<Server> candidates=performance.quickCandidates(eligible);
-            if(candidates.isEmpty())throw new IOException("No recently tested servers are working. Use Retest speeds or refresh the server list.");
+            if(candidates.isEmpty()) {
+                candidates=eligible;
+                connectionStage("Rechecking servers","Saved servers are unavailable. Checking again for a working connection…");
+            }
             QuickConnect.Result result=new QuickConnect().find(candidates,installer.binary(),data,progress -> {
-                log(progress); ui(() -> window.setConnection("Finding a server",progress,false));
+                log(progress); connectionStage("Finding a server",progress);
             },update -> recordPerformance(update.server(),update.performance()),nearbyCountry,performance.snapshot());
             checkCancelled();
             log("Best of "+result.tested()+" tested · "+result.server().displayName()+" · median HTTPS "+result.millis()+" ms");
-            connectNow(result.server(),useSystem,result.millis());
+            try {connectNow(result.server(),useSystem,result.millis());}
+            catch(Exception failure) {
+                if(!retryableServerFailure(result.server(),failure))throw failure;
+                // A working endpoint can disappear between the shortlist test and the real connection.
+                Exception last=failure;
+                Map<String,ServerPerformance> checked=performance.snapshot();
+                for(Server alternative:performance.ranked(eligible).stream()
+                        .filter(server -> !server.equals(result.server()))
+                        .filter(server -> {ServerPerformance value=checked.get(PerformanceCache.serverKey(server));return value!=null&&value.fresh();})
+                        .limit(3).toList()) {
+                    checkCancelled();
+                    connectionStage("Trying another server","The selected connection failed verification. Trying "+alternative.countryName()+"…");
+                    try {connectNow(alternative,useSystem,null);return;}
+                    catch(Exception next) {if(!retryableServerFailure(alternative,next))throw next;last=next;}
+                }
+                throw last;
+            }
             } finally {if(settings.automaticTesting()&&!closing.get()&&!Thread.currentThread().isInterrupted())startSpeedTests(false);}
         });
     }
+
+    @Override public void forceRetestSpeeds() {startSpeedTests(true);}
 
     @Override public void retestSpeeds() {
         if(speedTesting)cancelSpeedTests();else startSpeedTests(true);
@@ -291,6 +314,22 @@ public final class Main implements AppWindow.Actions {
         }
     }
 
+    static final class ServerConnectionFailure extends IOException {
+        ServerConnectionFailure(IOException cause) {super(safeMessage(cause),cause);}
+    }
+
+    private boolean retryableServerFailure(Server server,Exception failure) {
+        if(!(failure instanceof ServerConnectionFailure))return false;
+        if(failure instanceof InterruptedException || Thread.currentThread().isInterrupted() || closing.get() || system.hasRecovery())return false;
+        ServerPerformance result=performance.get(server);
+        return result!=null&&result.state()==ServerPerformance.State.FAILED;
+    }
+
+    private void connectionStage(String stage,String description) {
+        lastOperation=stage;
+        ui(() -> window.setConnection(stage,description,false));
+    }
+
     private void connectNow(Server server,boolean useSystem,Long measured) throws Exception {
         if(!settings.allows(server))throw new IOException("This protocol is disabled. Enable it in Settings before connecting.");
         cleanup(); checkCancelled();
@@ -298,16 +337,20 @@ public final class Main implements AppWindow.Actions {
         ProxyEngine.ensurePortFree(ProxyEngine.PORT);
         ProxyEngine fresh=new ProxyEngine(installer.binary(),data); engine=fresh;
         try {
+            connectionStage("Connecting","Starting your encrypted connection to "+server.countryName()+"…");
             fresh.start(Map.of(ProxyEngine.PORT,server),this::log);
-            ui(() -> window.setConnection("Verifying","Checking HTTPS through "+server.countryName()+"…",false));
+            connectionStage("Verifying connection","Checking HTTPS through "+server.countryName()+"…");
             long ms;
             try {ms=ProxyEngine.probe(ProxyEngine.PORT);}
-            catch(IOException e) {if(!Thread.currentThread().isInterrupted()){recordPerformance(server,ServerPerformance.failed());savePerformance();}throw e;}
+            catch(IOException e) {if(!Thread.currentThread().isInterrupted()){recordPerformance(server,ServerPerformance.failed());savePerformance();}throw new ServerConnectionFailure(e);}
             checkCancelled();
             ServerPerformance saved=performance.snapshot().get(PerformanceCache.serverKey(server));
             recordPerformance(server,saved!=null&&saved.successful()&&saved.hasQuality()?saved:ServerPerformance.verified(ms));savePerformance();
-            if(useSystem) system.enable("127.0.0.1",ProxyEngine.PORT);
-            checkCancelled(); connected=true;
+            if(useSystem) {
+                connectionStage("Applying system proxy","Setting up this device to use the verified connection…");
+                system.enable("127.0.0.1",ProxyEngine.PORT);
+            }
+            checkCancelled(); connected=true;lastOperation="Connected";lastErrorCategory="None";
             String detail=(useSystem?"System proxy":"Local proxy")+" · HTTPS "+(measured==null?ms:measured)+" ms";
             ui(() -> {window.selectServer(server);window.setConnection("Connected",detail,true);});
             log("Connected · "+server.displayName()+" · "+detail);
@@ -338,11 +381,16 @@ public final class Main implements AppWindow.Actions {
         ui(() -> window.setBusy(true));
         task=worker.submit(() -> {
             ui(() -> window.setBusy(true));
-            try {checkCancelled();action.run();}
+            try {lastOperation=label;checkCancelled();action.run();}
             catch(InterruptedException|CancellationException e) {Thread.currentThread().interrupt();}
             catch(Exception e) {
+                lastErrorCategory=diagnosticErrorCategory(e);
                 log(label+": "+safeMessage(e));
-                ui(() -> {if(!connected)window.setConnection("Disconnected","Could not complete the connection. Try another server.",false);window.showError(label,safeMessage(e));});
+                boolean connectionAction=(label.equals("Connecting")||label.equals("Finding a server"))&&!connected&&!system.hasRecovery();
+                ui(() -> {
+                    if(!connected)window.setConnection("Disconnected",connectionAction?"Could not connect. Try another server or retest saved results.":"The operation could not finish. Please try again.",false);
+                    if(connectionAction)window.showConnectionError(label,safeMessage(e));else window.showError(label,safeMessage(e));
+                });
             } finally {ui(() -> window.setBusy(false));}
         });
     }
@@ -409,6 +457,42 @@ public final class Main implements AppWindow.Actions {
             }
             catch(Exception e) {closing.set(false);ui(() -> {window.setBusy(false);window.showError(installUpdate?"Could not restart to update":"Restore proxy settings",safeMessage(e)+"\nThe app remains open so you can retry.");});}
         });
+    }
+
+    @Override public void copyDiagnostics() {
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(diagnostics()),null);
+            JOptionPane.showMessageDialog(window,"Diagnostics copied. Server addresses, credentials, and raw logs are excluded.","Copy diagnostics",JOptionPane.INFORMATION_MESSAGE);
+        } catch(Exception e) {window.showError("Copy diagnostics","Could not access the clipboard. Please try again.");}
+    }
+
+    String diagnostics() {
+        Map<String,ServerPerformance> results=performance.snapshot();
+        long working=results.values().stream().filter(ServerPerformance::successful).count();
+        String version=Main.class.getPackage().getImplementationVersion();
+        return "Moondrop diagnostics\nVersion: "+(version==null?"development":version)
+                +"\nOS: "+System.getProperty("os.name")+" / "+System.getProperty("os.arch")
+                +"\nJava: "+System.getProperty("java.version")
+                +"\nConnection: "+(connected?"Connected":"Disconnected")
+                +"\nLast operation: "+lastOperation+"\nLast error category: "+lastErrorCategory
+                +"\nEngine ready: "+installer.ready()+"\nSystem proxy supported: "+system.isSupported()
+                +"\nSystem proxy enabled in settings: "+settings.systemProxy()
+                +"\nAutomatic testing: "+settings.automaticTesting()+"\nTesting active: "+speedTesting
+                +"\nNearby first: "+settings.nearbyFirst()+"\nServers: "+servers.size()
+                +"\nEnabled servers: "+eligibleServers().size()+"\nCached checks: "+results.size()
+                +"\nWorking cached servers: "+working
+                +"\nEnabled protocols: "+settings.enabledProtocols().stream().sorted().toList()+"\n";
+    }
+
+    static String diagnosticErrorCategory(Exception error) {
+        for(Throwable current=error;current!=null;current=current.getCause()) {
+            if(current instanceof javax.net.ssl.SSLException)return "TLS certificate or handshake";
+            if(current instanceof java.net.SocketTimeoutException || current instanceof java.net.http.HttpTimeoutException)return "Network timeout";
+            if(current instanceof java.net.UnknownHostException)return "DNS lookup";
+            if(current instanceof java.net.ConnectException)return "Connection refused or unreachable";
+            if(current instanceof java.nio.file.AccessDeniedException || current instanceof SecurityException)return "Permission denied";
+        }
+        return error instanceof IOException?"Input/output failure":"Unexpected application failure";
     }
 
     private void releaseLock() {try {if(lock!=null&&lock.isValid())lock.release();if(lockChannel!=null)lockChannel.close();}catch(IOException ignored){}}

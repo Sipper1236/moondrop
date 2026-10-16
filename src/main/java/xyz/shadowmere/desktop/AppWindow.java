@@ -21,12 +21,14 @@ public final class AppWindow extends JFrame {
         boolean saveSettings(AppSettings settings);
         void refresh();
         void retestSpeeds();
+        default void forceRetestSpeeds() { retestSpeeds(); }
         void checkForUpdates();
         void restartToUpdate();
         void quickConnect(boolean systemProxy);
         void connect(Server server, boolean systemProxy);
         void disconnect();
         void installCore();
+        default void copyDiagnostics() { }
     }
     private static final Color BG = new Color(18,25,33), PANEL = new Color(26,35,45),
             TEXT = new Color(237,240,231), MUTED = new Color(148,164,174), MINT = new Color(157,229,193);
@@ -42,7 +44,7 @@ public final class AppWindow extends JFrame {
             super.paintComponent(graphics);
             if (getModel().getSize() == 0) {
                 graphics.setColor(MUTED); graphics.setFont(new Font(Font.SANS_SERIF,Font.PLAIN,13));
-                String message = actions.settings().enabledProtocols().isEmpty()?"Enable a protocol in Settings":all.isEmpty() ? "Refresh to discover available servers" : "No servers match your search";
+                String message = actions.settings().enabledProtocols().isEmpty()?"Enable a protocol in Settings → Advanced mode":all.isEmpty() ? "Refresh to discover available servers" : "No servers match your search";
                 graphics.drawString(message, Math.max(12, (getWidth()-graphics.getFontMetrics().stringWidth(message))/2), 48);
             }
         }
@@ -50,7 +52,7 @@ public final class AppWindow extends JFrame {
     private final JTextField search = new JTextField();
     private final JComboBox<String> country = new JComboBox<>(new String[]{"All locations"});
     private final Map<Server, ServerPerformance> performance = new HashMap<>();
-    private final JComboBox<String> sort = new JComboBox<>(new String[]{"Best connection", "Country name"});
+    private final JComboBox<String> sort = new JComboBox<>(new String[]{"Sort: recommended", "Sort: country"});
     private final JButton retest = new JButton("Retest speeds");
     private final JButton settingsButton = iconButton("settings", "Settings");
     private final JButton update = iconButton("update", "Check for updates");
@@ -58,6 +60,8 @@ public final class AppWindow extends JFrame {
     private boolean updateBusy;
     private String updateVersion;
     private final JLabel speedProgress = label("Latency · 7-day cache", MUTED, 11);
+    private final JLabel discovery = label("Loading servers…", MUTED, 12);
+    private final JLabel automaticHint = label("Automatically chooses the best tested server", MUTED, 11);
     private final Timer performanceRefresh = new Timer(150, e -> filter());
     private boolean speedTesting, rebuilding;
     private final JLabel count = label("Refresh to discover servers", MUTED, 12);
@@ -69,10 +73,13 @@ public final class AppWindow extends JFrame {
     private final JLabel selectedStrength = label("",MINT,11);
     private final JLabel selectedExplanation = label("",MUTED,11);
     private final JPanel selectedProtection = vertical();
-    private final JButton quickConnect = new JButton("Quick Connect");
+    private final JButton quickConnect = new JButton("Connect");
     private final JButton connect = new JButton("Connect selected server"), refresh = iconButton("refresh", "Refresh servers"), install = new JButton("Install engine");
     private final JCheckBox systemProxy = new JCheckBox("Use as system proxy");
     private final JTextArea log = new JTextArea();
+    private final JPanel proxyControls = vertical();
+    private final JPanel enginePanel = panel(new BorderLayout(0,10));
+    private final JToggleButton serverDetails = new JToggleButton("Show server details");
     private List<Server> all = List.of();
     private boolean connected, busy, coreReady, systemProxySupported = true;
 
@@ -120,49 +127,69 @@ public final class AppWindow extends JFrame {
         JPanel selectedFeatures=new JPanel(new FlowLayout(FlowLayout.LEFT,8,0));selectedFeatures.setOpaque(false);selectedFeatures.setAlignmentX(Component.LEFT_ALIGNMENT);
         selectedFeatures.add(selectedProtocol);selectedFeatures.add(selectedStrength);
         selectedProtection.add(selectedFeatures);selectedProtection.add(Box.createVerticalStrut(6));selectedProtection.add(selectedExplanation);
-        selectedProtection.setVisible(false);chosen.add(selectedProtection);chosen.add(Box.createVerticalStrut(14));
-        systemProxy.setOpaque(false); systemProxy.setForeground(TEXT); systemProxy.setAlignmentX(Component.LEFT_ALIGNMENT); chosen.add(systemProxy); chosen.add(Box.createVerticalStrut(6)); chosen.add(label("Off: connect apps to SOCKS5 127.0.0.1:17890",MUTED,11)); chosen.add(Box.createVerticalStrut(5)); chosen.add(label("On: supported apps use your system proxy settings.",MUTED,11)); connection.add(chosen,BorderLayout.CENTER);
+        selectedProtection.setVisible(false); serverDetails.setAlignmentX(Component.LEFT_ALIGNMENT);serverDetails.addActionListener(e -> {selectedExplanation.setVisible(serverDetails.isSelected());serverDetails.setText(serverDetails.isSelected()?"Hide server details":"Show server details");});chosen.add(selectedProtection);chosen.add(serverDetails);chosen.add(Box.createVerticalStrut(14));
+        systemProxy.setOpaque(false); systemProxy.setForeground(TEXT); systemProxy.setAlignmentX(Component.LEFT_ALIGNMENT); proxyControls.add(systemProxy); proxyControls.add(Box.createVerticalStrut(6)); proxyControls.add(label("Local SOCKS5 / HTTP: 127.0.0.1:17890",MUTED,11)); proxyControls.add(Box.createVerticalStrut(5)); proxyControls.add(label("System proxy applies to supported apps.",MUTED,11)); chosen.add(proxyControls); connection.add(chosen,BorderLayout.CENTER);
         connect.setPreferredSize(new Dimension(200,44)); connect.setBackground(new Color(43,58,67)); connect.setForeground(TEXT); connect.setFont(connect.getFont().deriveFont(Font.BOLD,14)); connect.addActionListener(e -> {if(connected || busy) actions.disconnect(); else if(servers.getSelectedValue()!=null) actions.connect(servers.getSelectedValue(),systemProxy.isSelected());}); JPanel connectionButtons = vertical();
-        quickConnect.setBackground(MINT); quickConnect.setForeground(BG); quickConnect.setFont(quickConnect.getFont().deriveFont(Font.BOLD,21)); quickConnect.setAlignmentX(Component.LEFT_ALIGNMENT); quickConnect.setMaximumSize(new Dimension(Integer.MAX_VALUE,84)); quickConnect.setMinimumSize(new Dimension(250,84)); quickConnect.setPreferredSize(new Dimension(350,84)); quickConnect.putClientProperty("FlatLaf.style","arc: 20");quickConnect.setToolTipText("Automatically test servers and connect to the fastest verified result");quickConnect.addActionListener(e -> actions.quickConnect(systemProxy.isSelected()));
-        connectionButtons.add(quickConnect); connectionButtons.add(Box.createVerticalStrut(9)); connectionButtons.add(label("Automatically connects to the fastest tested server", MUTED,11)); connectionButtons.add(Box.createVerticalStrut(10)); connect.setAlignmentX(Component.LEFT_ALIGNMENT); connect.setMaximumSize(new Dimension(Integer.MAX_VALUE,40)); connectionButtons.add(connect); connection.add(connectionButtons,BorderLayout.SOUTH);
-        JPanel engine = panel(new BorderLayout(0,10)); engine.setBorder(new EmptyBorder(14,20,14,20)); right.add(engine,BorderLayout.CENTER);
+        quickConnect.setBackground(MINT); quickConnect.setForeground(BG); quickConnect.setFont(quickConnect.getFont().deriveFont(Font.BOLD,21)); quickConnect.setAlignmentX(Component.LEFT_ALIGNMENT); quickConnect.setMaximumSize(new Dimension(Integer.MAX_VALUE,84)); quickConnect.setMinimumSize(new Dimension(250,84)); quickConnect.setPreferredSize(new Dimension(350,84)); quickConnect.putClientProperty("FlatLaf.style","arc: 20");quickConnect.setToolTipText("Automatically test servers and connect to the fastest verified result");quickConnect.addActionListener(e -> {if(connected||busy)actions.disconnect();else actions.quickConnect(systemProxy.isSelected());});
+        connectionButtons.add(quickConnect); connectionButtons.add(Box.createVerticalStrut(9)); connectionButtons.add(automaticHint); connectionButtons.add(Box.createVerticalStrut(8)); connectionButtons.add(discovery); connectionButtons.add(Box.createVerticalStrut(10)); connect.setAlignmentX(Component.LEFT_ALIGNMENT); connect.setMaximumSize(new Dimension(Integer.MAX_VALUE,40)); connectionButtons.add(connect); connection.add(connectionButtons,BorderLayout.SOUTH);
+        JPanel engine = enginePanel; engine.setBorder(new EmptyBorder(14,20,14,20)); right.add(engine,BorderLayout.CENTER);
         JPanel engineHeader = new JPanel(new BorderLayout()); engineHeader.setOpaque(false); engineHeader.add(label("ENGINE & ACTIVITY",MUTED,11),BorderLayout.WEST); install.addActionListener(e -> actions.installCore()); engineHeader.add(install,BorderLayout.EAST); engine.add(engineHeader,BorderLayout.NORTH);
         log.setEditable(false); log.setLineWrap(true); log.setWrapStyleWord(true); log.setBackground(PANEL); log.setForeground(MUTED); log.setFont(new Font(Font.MONOSPACED,Font.PLAIN,11)); JScrollPane logs = new JScrollPane(log); logs.setBorder(BorderFactory.createEmptyBorder()); logs.setPreferredSize(new Dimension(300,120)); engine.add(logs,BorderLayout.CENTER);
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();}public void removeUpdate(DocumentEvent e){filter();}public void changedUpdate(DocumentEvent e){filter();}});
-        country.addActionListener(e -> {if(!updatingFilters)filter();}); servers.addListSelectionListener(e -> {if(connected||rebuilding)return; showSelection(servers.getSelectedValue()); updateControls();}); updateControls();
+        applyMode(); country.addActionListener(e -> {if(!updatingFilters)filter();}); servers.addListSelectionListener(e -> {if(connected||rebuilding)return; showSelection(servers.getSelectedValue()); updateControls();}); updateControls();
     }
     private void showSettings() {
         AppSettings current=actions.settings();
+        JCheckBox advanced=new JCheckBox("Advanced mode",current.advancedMode());
         JCheckBox updates=new JCheckBox("Check for updates automatically",current.automaticUpdates());
         JCheckBox testing=new JCheckBox("Test servers in the background",current.automaticTesting());
         JCheckBox nearby=new JCheckBox("Test nearby countries first",current.nearbyFirst());
         JCheckBox proxy=new JCheckBox("Use system proxy by default",current.systemProxy());
         proxy.setEnabled(systemProxySupported);
         JPanel content=vertical(); content.setBorder(new EmptyBorder(10,6,10,6));
-        content.add(label("MAKE IT YOURS",MUTED,11));content.add(Box.createVerticalStrut(14));
-        for(JCheckBox option:List.of(updates,testing,nearby,proxy)) {
-            option.setOpaque(false);option.setAlignmentX(Component.LEFT_ALIGNMENT);content.add(option);content.add(Box.createVerticalStrut(8));
-        }
-        content.add(Box.createVerticalStrut(8));content.add(label("ENABLED PROTOCOLS",MUTED,11));content.add(Box.createVerticalStrut(8));
+        content.add(label("CONNECTION",MUTED,11));content.add(Box.createVerticalStrut(10));
+        for(JCheckBox option:List.of(testing,proxy))addOption(content,option);
+        content.add(label("Completed tests are saved for 7 days and rechecked when needed.",MUTED,11));
+        content.add(Box.createVerticalStrut(14));content.add(label("UPDATES",MUTED,11));
+        addOption(content,updates);
+        JButton diagnostics=new JButton("Copy diagnostics");diagnostics.addActionListener(e -> actions.copyDiagnostics());
+        diagnostics.setAlignmentX(Component.LEFT_ALIGNMENT);content.add(diagnostics);
+        content.add(Box.createVerticalStrut(14));addOption(content,advanced);
+        content.add(label("Show protocol controls, measurements and engine activity.",MUTED,11));
+        JPanel advancedOptions=vertical();advancedOptions.add(Box.createVerticalStrut(12));
+        addOption(advancedOptions,nearby);
+        advancedOptions.add(label("PROTOCOLS",MUTED,11));advancedOptions.add(Box.createVerticalStrut(8));
         Map<String,JCheckBox> protocols=new java.util.LinkedHashMap<>();
         for(String protocol:AppSettings.PROTOCOLS) {
             String name=switch(protocol) {case "shadowsocks" -> "Shadowsocks";case "vless" -> "VLESS (TLS / REALITY)";case "trojan" -> "Trojan";case "hysteria2" -> "Hysteria 2";default -> "TUIC";};
             JCheckBox option=new JCheckBox(name,current.enabledProtocols().contains(protocol));
-            option.setOpaque(false);option.setAlignmentX(Component.LEFT_ALIGNMENT);protocols.put(protocol,option);
-            content.add(option);content.add(Box.createVerticalStrut(5));
+            protocols.put(protocol,option);addOption(advancedOptions,option);
         }
-        content.add(label("Disabled protocols are hidden and skipped. Current connections stay active.",MUTED,11));
+        advancedOptions.add(label("Disabled protocols are hidden and skipped.",MUTED,11));
+        advancedOptions.add(label("Your current connection stays active until you disconnect.",MUTED,11));
+        advancedOptions.setVisible(advanced.isSelected());content.add(advancedOptions);
+        advanced.addActionListener(e -> {
+            advancedOptions.setVisible(advanced.isSelected());
+            Window dialog=SwingUtilities.getWindowAncestor(content);if(dialog!=null){dialog.pack();dialog.setLocationRelativeTo(this);}
+        });
         content.add(Box.createVerticalStrut(10));
-        content.add(label("Saved tests stay cached for 7 days. Quick Connect still verifies servers.",MUTED,11));
-        content.add(Box.createVerticalStrut(6));
-        content.add(label("Nearby ordering uses an approximate country lookup on refresh.",MUTED,11));
-        content.add(Box.createVerticalStrut(6));
-        content.add(label(systemProxySupported?"Proxy preference applies to your next connection.":"Use local SOCKS5 / HTTP at 127.0.0.1:17890 on this platform.",MUTED,11));
+        content.add(label(systemProxySupported?"Proxy preference applies to your next connection.":"Linux: configure apps to use the local proxy at 127.0.0.1:17890.",MUTED,11));
         int choice=JOptionPane.showOptionDialog(this,content,"Settings",JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE,null,new String[]{"Save settings","Cancel"},"Save settings");
-        if(choice==0&&actions.saveSettings(new AppSettings(updates.isSelected(),testing.isSelected(),nearby.isSelected(),proxy.isSelected(),protocols.entrySet().stream().filter(entry -> entry.getValue().isSelected()).map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet())))) {
+        if(choice==0&&actions.saveSettings(new AppSettings(updates.isSelected(),testing.isSelected(),nearby.isSelected(),proxy.isSelected(),protocols.entrySet().stream().filter(entry -> entry.getValue().isSelected()).map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet()),advanced.isSelected()))) {
             if(!busy&&!connected)systemProxy.setSelected(systemProxySupported&&proxy.isSelected());
+            applyMode();
         }
+    }
+    private static void addOption(JPanel content,JCheckBox option) {
+        option.setOpaque(false);option.setAlignmentX(Component.LEFT_ALIGNMENT);content.add(option);content.add(Box.createVerticalStrut(6));
+    }
+    private void applyMode() {
+        boolean advanced=actions.settings().advancedMode();
+        enginePanel.setVisible(advanced);proxyControls.setVisible(advanced||!systemProxySupported);
+        serverDetails.setSelected(advanced);serverDetails.setText(advanced?"Hide server details":"Show server details");
+        selectedExplanation.setVisible(advanced);speedProgress.setVisible(advanced);
+        servers.repaint();revalidate();repaint();
     }
 
     public void setServers(List<Server> list) {
@@ -210,11 +237,11 @@ public final class AppWindow extends JFrame {
         } finally { rebuilding=false; }
         Server selected=servers.getSelectedValue();
         if(!connected)showSelection(selected);
-        count.setText(model.size()+" servers"); servers.repaint(); updateControls();
+        count.setText(model.size()+" servers"); updateDiscovery(); servers.repaint(); updateControls();
     }
     public void setPerformance(Server server,ServerPerformance value){performance.put(server,value);if(!performanceRefresh.isRunning())performanceRefresh.start();}
     public void clearPerformance(){performance.clear();performanceRefresh.stop();filter();}
-    public void setSpeedTesting(boolean running,String progress){speedTesting=running;retest.setText(running?"Stop testing":"Retest speeds");retest.setToolTipText(running?"Stop testing and keep completed results. Automatic checks resume missing results on the next launch.":"Retest every server, including cached results. Use after changing networks or routes.");speedProgress.setText(progress!=null&&!progress.isBlank()?progress:running?"Testing latency · progress saved…":"Latency · 7-day cache");updateControls();}
+    public void setSpeedTesting(boolean running,String progress){speedTesting=running;retest.setText(running?"Stop testing":"Retest speeds");retest.setToolTipText(running?"Stop testing and keep completed results. Automatic checks resume missing results on the next launch.":"Retest every server, including cached results. Use after changing networks or routes.");speedProgress.setText(progress!=null&&!progress.isBlank()?progress:running?"Testing latency · progress saved…":"Latency · 7-day cache");updateDiscovery();updateControls();}
     public void setUpdateStatus(String text,boolean running){
         updateBusy=running;
         updateStatus.setText(text==null?"":text);
@@ -244,26 +271,48 @@ public final class AppWindow extends JFrame {
         selectedName.setText(server==null?"Choose a server":server.countryName());
         selectedName.setIcon(server==null?null:FlagIcons.get(server.country()));selectedName.setIconTextGap(10);
         selectedDetail.setText(server==null?"Select a location from the list.":server.displayName());
-        selectedProtection.setVisible(server!=null);
+        selectedProtection.setVisible(server!=null);serverDetails.setVisible(server!=null);
         if(server!=null) {
             selectedProtocol.setText(server.protocolName());selectedStrength.setText(server.protectionLabel());
-            selectedExplanation.setText("<html><div style='width:260px'>"+escape(server.protectionDetail())+"</div></html>");
+            ServerPerformance result=performanceFor(server);
+            String measurements=result.completed()?result.label()+" · checked "+DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(result.checkedAt()):result.label();
+            selectedExplanation.setText("<html><div style='width:260px'>"+escape(server.protectionDetail())+"<br><br>"+escape(measurements)+"</div></html>");
             selectedProtocol.setToolTipText(server.protectionDetail());selectedStrength.setToolTipText(server.protectionDetail());
         }
     }
-    public void setSystemProxySupported(boolean supported){systemProxySupported=supported;systemProxy.setSelected(supported&&actions.settings().systemProxy());systemProxy.setToolTipText(supported?null:"System proxy settings are available on macOS and Windows. Use the local SOCKS5 endpoint on this platform.");updateControls();}
+    public void setSystemProxySupported(boolean supported){systemProxySupported=supported;systemProxy.setSelected(supported&&actions.settings().systemProxy());systemProxy.setToolTipText(supported?null:"System proxy settings are available on macOS and Windows. Use the local SOCKS5 endpoint on this platform.");applyMode();updateControls();}
     public void setBusy(boolean value){busy=value; updateControls();}
     public void setCoreReady(boolean value){coreReady=value; install.setText(value?"Engine ready":"Install engine"); updateControls();}
     public void setConnection(String state,String description,boolean value){boolean wasConnected=connected;if(wasConnected&&!value)systemProxy.setSelected(systemProxySupported&&actions.settings().systemProxy());connected=value;if(wasConnected&&!value)showSelection(servers.getSelectedValue());status.setText(state);status.setForeground(value?MINT:TEXT);detail.setText("<html><div style='width:270px'>"+escape(description)+"</div></html>");detail.setToolTipText(description);updateControls();}
-    public void showError(String title,String description){JTextArea text=new JTextArea(description,7,48);text.setEditable(false);text.setLineWrap(true);text.setWrapStyleWord(true);text.setOpaque(false);JOptionPane.showMessageDialog(this,text,title,JOptionPane.ERROR_MESSAGE);}
+    public void showError(String title,String description){showFailure(title,description,false);}
+    public void showConnectionError(String title,String description){showFailure(title,description,true);}
+    private void showFailure(String title,String description,boolean connectionFailure){
+        JTextArea text=new JTextArea(description,7,48);text.setEditable(false);text.setLineWrap(true);text.setWrapStyleWord(true);text.setOpaque(false);
+        String[] options=connectionFailure?new String[]{"Try another server","Retest servers","Copy diagnostics","Close"}:new String[]{"Copy diagnostics","Close"};
+        int choice=JOptionPane.showOptionDialog(this,text,title,JOptionPane.DEFAULT_OPTION,JOptionPane.ERROR_MESSAGE,null,options,options[0]);
+        // Defer recovery until the current controller operation has cleared its busy state.
+        if(connectionFailure&&choice==0)SwingUtilities.invokeLater(() -> actions.quickConnect(systemProxy.isSelected()));
+        else if(connectionFailure&&choice==1)SwingUtilities.invokeLater(actions::forceRetestSpeeds);
+        else if(choice==(connectionFailure?2:0))actions.copyDiagnostics();
+    }
+    private void updateDiscovery(){
+        long checked=all.stream().map(this::performanceFor).filter(ServerPerformance::completed).count();
+        long working=all.stream().map(this::performanceFor).filter(result -> result.successful()&&result.fresh()).count();
+        String message=actions.settings().enabledProtocols().isEmpty()?"Enable a protocol in Settings → Advanced mode.":all.isEmpty()?"No servers available yet. Use Refresh to try again.":speedTesting&&working==0?"Finding your fastest connection… "+checked+" checked":
+                speedTesting?working+" working · "+checked+" checked · testing continues":
+                checked>0?working+" working · saved tests reused for 7 days":"Connect to find a working server, or start testing.";
+        discovery.setText("<html><div style='width:260px'>"+escape(message)+"</div></html>");
+    }
     public void appendLog(String text){log.append(text+"\n");log.setCaretPosition(log.getDocument().getLength());}
     private void updateControls(){
         retest.setEnabled(speedTesting||(!busy&&!all.isEmpty())); sort.setEnabled(!busy);
         settingsButton.setEnabled(!busy); refresh.setEnabled(!busy); install.setEnabled(!busy&&!coreReady&&!connected);
-        quickConnect.setText(busy?"Please wait…":"Quick Connect");
-        quickConnect.setEnabled(!busy&&!connected&&!all.isEmpty());
+        quickConnect.setText(busy?"Cancel":connected?"Disconnect":"Connect");
+        quickConnect.setEnabled(busy||connected||!all.isEmpty());
+        automaticHint.setText(connected?"Connected server verified with HTTPS":busy?"Checking the connection…":"Automatically chooses the best tested server");
         connect.setText(busy?"Cancel":connected?"Disconnect":"Connect selected server");
-        connect.setEnabled(busy||connected||(servers.getSelectedValue()!=null));
+        connect.setEnabled(!busy&&!connected&&servers.getSelectedValue()!=null);
+        connect.setVisible(!busy&&!connected);
         systemProxy.setEnabled(systemProxySupported&&!busy&&!connected);
         servers.setEnabled(!busy&&!connected); search.setEnabled(!busy&&!connected); country.setEnabled(!busy&&!connected);
     }
@@ -307,11 +356,18 @@ public final class AppWindow extends JFrame {
     private final class ServerRenderer extends JPanel implements ListCellRenderer<Server>{
         private final JLabel title=label("",TEXT,14), sub=label("",MUTED,11), icon=label("",MINT,12), latency=label("",MINT,11), protocol=new ProtocolBadge();
         ServerRenderer(){setLayout(new BorderLayout(10,0));setBorder(new EmptyBorder(8,10,8,10)); JPanel t=vertical();t.add(title);t.add(Box.createVerticalStrut(4));t.add(sub);t.add(Box.createVerticalStrut(5));t.add(protocol);add(icon,BorderLayout.WEST);add(t,BorderLayout.CENTER);latency.setHorizontalAlignment(SwingConstants.RIGHT);add(latency,BorderLayout.EAST);}
-        public Component getListCellRendererComponent(JList<? extends Server> list,Server s,int index,boolean selected,boolean focus){setBackground(selected?new Color(44,66,65):PANEL);icon.setText(null);icon.setIcon(FlagIcons.get(s.country()));title.setText(s.countryName());sub.setText(source(s)+" · "+s.displayName());protocol.setText(s.protocolName());
-            ServerPerformance result=performanceFor(s); latency.setText(result.label());
+        public Component getListCellRendererComponent(JList<? extends Server> list,Server s,int index,boolean selected,boolean focus){setBackground(selected?new Color(44,66,65):PANEL);icon.setText(null);icon.setIcon(FlagIcons.get(s.country()));title.setText(s.countryName());sub.setText(actions.settings().advancedMode()?source(s)+" · "+s.displayName():s.displayName());protocol.setText(s.protocolName());
+            ServerPerformance result=performanceFor(s); latency.setText(actions.settings().advancedMode()?result.label():simpleResult(result));
             latency.setForeground(result.successful()?(result.fresh()?MINT:MUTED):result.state()==ServerPerformance.State.FAILED?new Color(220,143,136):MUTED);
             String tooltip=result.state()==ServerPerformance.State.UNTESTED?"Latency has not been tested yet":result.state()==ServerPerformance.State.TESTING?"Checking verified HTTPS round-trip latency…": "Latency checked "+DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(result.checkedAt())+(result.fresh()?" · cached":" · saved, awaiting recheck")+". "+(result.attempts()>0?result.successes()+"/"+result.attempts()+" HTTPS checks succeeded; latency is the median of successful checks. ":"")+(result.bytesPerSecond()>0?"Download estimate "+String.format(Locale.ROOT,"%.1f Mb/s",result.bytesPerSecond()*8.0/1_000_000):result.bytesPerSecond()==0?"Download test failed.":"Download has not been measured.");
             setToolTipText(tooltip);return this;}
+    }
+    static String simpleResult(ServerPerformance result) {
+        String metric=switch(result.state()) {case VERIFIED -> result.millis()+" ms";case FAILED -> "Unavailable";case TESTING -> "Testing…";case UNTESTED -> "Not tested";};
+        if(!result.completed())return metric;
+        long minutes=Math.max(0,java.time.Duration.between(result.checkedAt(),java.time.Instant.now()).toMinutes());
+        String age=minutes<1?"just now":minutes<60?minutes+"m ago":minutes<1440?minutes/60+"h ago":minutes/1440+"d ago";
+        return "<html><div style='text-align:right'>"+metric+"<br>"+age+"</div></html>";
     }
     private static final class ProtocolBadge extends JLabel {
         ProtocolBadge(){setFont(new Font(Font.SANS_SERIF,Font.BOLD,10));setForeground(new Color(212,233,223));setBorder(new EmptyBorder(3,7,3,7));setAlignmentX(Component.LEFT_ALIGNMENT);}

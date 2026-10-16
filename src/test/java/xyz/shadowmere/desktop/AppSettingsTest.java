@@ -24,6 +24,23 @@ class AppSettingsTest {
         Files.writeString(data.resolve("settings.properties"),"automaticTesting=false\n");
         assertEquals(new AppSettings(true,false,true,true),AppSettings.load(data));
     }
+    @Test void advancedModeDefaultsToOffForExistingInstallations() throws Exception {
+        assertFalse(AppSettings.defaults().advancedMode());
+        assertFalse(new AppSettings(true,true,true,true,Set.of("vless")).advancedMode());
+        Files.writeString(data.resolve("settings.properties"),"automaticTesting=false\nprotocol.trojan=false\n");
+        AppSettings loaded=AppSettings.load(data);
+        assertFalse(loaded.advancedMode());
+        assertFalse(loaded.automaticTesting());
+        assertFalse(loaded.enabledProtocols().contains("trojan"));
+    }
+    @Test void advancedModeSurvivesRestartAndCanBeTurnedOff() throws Exception {
+        AppSettings advanced=new AppSettings(true,false,true,false,Set.of("vless","trojan"),true);
+        advanced.save(data);
+        assertEquals(advanced,AppSettings.load(data));
+        AppSettings simple=new AppSettings(true,false,true,false,Set.of("vless","trojan"),false);
+        simple.save(data);
+        assertEquals(simple,AppSettings.load(data));
+    }
     @Test void protocolSelectionsSurviveRestartIncludingAllDisabled() throws Exception {
         AppSettings selected=new AppSettings(true,true,true,true,Set.of("shadowsocks","vless"));
         selected.save(data);assertEquals(selected,AppSettings.load(data));

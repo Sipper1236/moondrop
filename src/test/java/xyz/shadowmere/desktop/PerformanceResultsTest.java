@@ -6,6 +6,19 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PerformanceResultsTest {
+    @Test void firstWorkingResultCanConnectBeforeDownloadTestsFinish() {
+        var results=new PerformanceResults();
+        Server first=server(1),stale=server(2),failed=server(3),unknown=server(4);
+        results.record(first,ServerPerformance.measured(List.of(35L,40L,45L),3));
+        results.record(stale,new ServerPerformance(ServerPerformance.State.VERIFIED,1,Instant.now().minusSeconds(8*86400),3,3,1000000,Instant.now().minusSeconds(8*86400)));
+        results.record(failed,ServerPerformance.failed());
+        assertFalse(results.get(first).throughputFresh());
+        assertEquals(List.of(first),results.connectionCandidates(List.of(stale,failed,first,unknown),3));
+        assertEquals(List.of(),results.connectionCandidates(List.of(first),0));
+        assertThrows(IllegalArgumentException.class,() -> results.connectionCandidates(List.of(first),-1));
+        results.record(first,ServerPerformance.failed());
+        assertTrue(results.connectionCandidates(List.of(first),3).isEmpty());
+    }
     private Server server(int number) {
         return new Server("" + number, "127.0.0.1", 8000 + number, "aes-256-gcm", "password", "", "", "", true);
     }

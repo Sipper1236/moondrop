@@ -48,6 +48,12 @@ public final class PerformanceResults {
             return result != null && result.successful() && result.completed();
         }).sorted(Comparator.comparing(server -> completed.get(PerformanceCache.serverKey(server)),ServerPerformance.bestFirst())).toList();
     }
+    /** Working results can be used immediately; a download test is not required to connect. */
+    public synchronized List<Server> connectionCandidates(List<Server> servers,int limit) {
+        if(limit<0)throw new IllegalArgumentException("Negative candidate limit");
+        return ranked(servers).stream().filter(server -> completed.get(PerformanceCache.serverKey(server)).fresh())
+                .limit(limit).toList();
+    }
     public synchronized List<Server> bandwidthCandidates(List<Server> servers,int limit){
         if(limit<0)throw new IllegalArgumentException("Negative candidate limit");
         // Choose a stable shortlist before checking its bandwidth cache. Otherwise every launch

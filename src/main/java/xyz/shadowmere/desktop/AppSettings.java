@@ -8,7 +8,8 @@ import java.util.List;
 
 /** User preferences, separate from connection credentials and speed results. */
 public record AppSettings(boolean automaticUpdates, boolean automaticTesting,
-                          boolean nearbyFirst, boolean systemProxy, Set<String> enabledProtocols) {
+                          boolean nearbyFirst, boolean systemProxy, Set<String> enabledProtocols,
+                          boolean advancedMode) {
     public static final List<String> PROTOCOLS=List.of("shadowsocks","vless","trojan","hysteria2","tuic");
     public AppSettings {
         enabledProtocols=Set.copyOf(enabledProtocols);
@@ -16,6 +17,10 @@ public record AppSettings(boolean automaticUpdates, boolean automaticTesting,
     }
     public AppSettings(boolean automaticUpdates,boolean automaticTesting,boolean nearbyFirst,boolean systemProxy) {
         this(automaticUpdates,automaticTesting,nearbyFirst,systemProxy,Set.copyOf(PROTOCOLS));
+    }
+    public AppSettings(boolean automaticUpdates,boolean automaticTesting,boolean nearbyFirst,boolean systemProxy,
+                       Set<String> enabledProtocols) {
+        this(automaticUpdates,automaticTesting,nearbyFirst,systemProxy,enabledProtocols,false);
     }
     public boolean allows(Server server) { return enabledProtocols.contains(server.protocol()); }
     public List<Server> eligible(List<Server> servers) { return servers.stream().filter(this::allows).toList(); }
@@ -27,7 +32,8 @@ public record AppSettings(boolean automaticUpdates, boolean automaticTesting,
         try (Reader reader = Files.newBufferedReader(file)) { values.load(reader); }
         return new AppSettings(value(values,"automaticUpdates"), value(values,"automaticTesting"),
                 value(values,"nearbyFirst"), value(values,"systemProxy"),
-                PROTOCOLS.stream().filter(protocol -> value(values,"protocol."+protocol)).collect(java.util.stream.Collectors.toSet()));
+                PROTOCOLS.stream().filter(protocol -> value(values,"protocol."+protocol)).collect(java.util.stream.Collectors.toSet()),
+                Boolean.parseBoolean(values.getProperty("advancedMode", "false")));
     }
     private static boolean value(Properties values, String name) {
         return !"false".equalsIgnoreCase(values.getProperty(name, "true"));
@@ -39,6 +45,7 @@ public record AppSettings(boolean automaticUpdates, boolean automaticTesting,
         values.setProperty("automaticTesting", Boolean.toString(automaticTesting));
         values.setProperty("nearbyFirst", Boolean.toString(nearbyFirst));
         values.setProperty("systemProxy", Boolean.toString(systemProxy));
+        values.setProperty("advancedMode", Boolean.toString(advancedMode));
         for(String protocol:PROTOCOLS)values.setProperty("protocol."+protocol,Boolean.toString(enabledProtocols.contains(protocol)));
         Path temporary = Files.createTempFile(data,"settings-", ".tmp");
         try {

@@ -4,15 +4,17 @@ by rayyan
 
 A small, independent Java desktop client for protected Shadowsocks, VLESS, Trojan, Hysteria2, and TUIC connections from [Shadowmere](https://shadowmere.xyz/), [GFP](https://github.com/gfpcom/free-proxy-list), [V2rayCollector](https://github.com/MhdiTaheri/V2rayCollector), and [Morpheus](https://github.com/morpheusadam/v2ray-config). Dark navy, warm text, mint accents, country flags, one list, one connection. Not an official Shadowmere release.
 
-![Moondrop with country flags and Quick Connect](docs/preview.png)
+![Moondrop in simple mode with country flags and Connect](docs/preview.png)
+
+*Interface preview with example servers and measurements.*
 
 ## Install
 
-Download from the [Moondrop v0.6.6 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.6), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
+Download from the [Moondrop v0.7.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.0), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
 
 ### Windows installer
 
-1. Under **Assets**, download **Moondrop-0.6.6-Windows-x64.exe** for a Windows x64 PC.
+1. Under **Assets**, download **Moondrop-0.7.0-Windows-x64.exe** for a Windows x64 PC.
 2. Run the installer. It installs for your user account and creates Start menu and desktop shortcuts.
 3. Open **Moondrop** from either shortcut.
 
@@ -21,7 +23,7 @@ This release is unsigned. Windows SmartScreen or Microsoft Defender may warn abo
 ### macOS installer
 
 1. Open Apple menu → **About This Mac** to check your chip.
-2. Download **Moondrop-0.6.6-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.6.6-macOS-x64.dmg** for Intel.
+2. Download **Moondrop-0.7.0-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.7.0-macOS-x64.dmg** for Intel.
 3. Open the DMG and drag **Moondrop.app** into **Applications**. If that folder is not writable by your account, use `~/Applications` instead.
 4. Open Moondrop from Applications, then eject the installer disk.
 
@@ -114,7 +116,7 @@ java -version
 
 #### 2. Download the portable archive
 
-1. Open the [Moondrop v0.6.6 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.6). This is a prerelease.
+1. Open the [Moondrop v0.7.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.0). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 
@@ -163,7 +165,7 @@ For each reachable candidate, Moondrop makes **three HTTPS requests**, shows the
 
 Completed checks, including failures and download estimates, are cached locally for **7 days**. Results are saved as testing progresses, so closing and reopening Moondrop resumes missing checks instead of starting the full scan again. Automatic testing checks only new, changed, or expired servers. Existing working entries with one old HTTPS sample receive a three-request upgrade; the old failure cache stays intact. Older measurements remain visible until replaced. Hover a result to see when it was measured. Use **Stop testing** to pause; completed checks stay saved.
 
-Click **Quick Connect**. Moondrop reuses the cached quality ranking and verifies the selected server again before connecting. Ranking puts complete three-request results first, then reliability, then a score combining median latency with the estimated time to transfer 256 KiB. When download speed is unknown, the score adds one second; a failed download ranks behind other results with the same quality and reliability. Without a usable cached result, Quick Connect samples up to 256 candidates across sources and countries, limits initial address checks to eight seconds, and compares HTTPS results through up to 20 responsive candidates. This is the best connection tested, not a promise about every server or download speed. Failed checks are excluded until they expire or you retest.
+Click **Connect**. Moondrop reuses the cached quality ranking and verifies the selected server again before connecting. Ranking puts complete three-request results first, then reliability, then a score combining median latency with the estimated time to transfer 256 KiB. When download speed is unknown, the score adds one second; a failed download ranks behind other results with the same quality and reliability. Without a usable cached result, Quick Connect samples up to 256 candidates across sources and countries, limits initial address checks to eight seconds, and compares HTTPS results through up to 20 responsive candidates. This is the best connection tested, not a promise about every server or download speed. Failed checks are normally excluded until they expire or you retest. If every enabled candidate has a cached failure, Connect rechecks a sample rather than refusing immediately.
 
 The cache reflects **your machine and network**; it is not a shared global ranking. After changing networks or routes, use **Retest speeds** to force a fresh check of every server, including cached successes and failures. A successful HTTPS check confirms that a server works from your current network. Actual censorship bypass depends on the network, server, and protocol configuration; TLS alone does not guarantee it everywhere.
 
@@ -216,21 +218,21 @@ These older Shadowmere folder names are retained for compatibility and proxy rec
 
 ## Use
 
-1. Open Moondrop. The app loads the current active server list.
-2. Click **Quick Connect**, or select a server and click **Connect selected server**.
-3. On first connection, the app automatically downloads sing-box 1.14.3 for your OS and CPU from SagerNet's official GitHub release and checks its pinned SHA-256 checksum. **Install engine** also lets you prepare it ahead of time.
-4. With **Use as system proxy** enabled, compatible macOS/Windows apps use the connection. Without it, configure an app to use HTTP or SOCKS5 at `127.0.0.1:17890`.
+1. Open Moondrop. The app loads servers and tests them in the background, showing checked and working counts. Saved results are reused on later launches.
+2. Click the large **Connect** button to choose the best tested server, or select a location and click **Connect selected server**. You can connect while background testing continues. **Sort: recommended** only changes list order.
+3. On first connection, the app automatically downloads sing-box 1.14.3 for your OS and CPU from SagerNet's official GitHub release and checks its pinned SHA-256 checksum. **Install engine** in Advanced mode also lets you prepare it ahead of time.
+4. System proxy is enabled by default on macOS and Windows for compatible apps. Change the default in Settings. Linux uses the local proxy: configure apps to use HTTP or SOCKS5 at `127.0.0.1:17890`. Advanced mode reveals the per-connection proxy control.
 5. **Disconnect** restores the previous system proxy settings and stops this app's engine.
 
 This is an application proxy, not a VPN or TUN tunnel. Apps that ignore system proxy settings are not covered. macOS may require network-settings permission. On Windows this configures the current user's Internet Settings, not WinHTTP. Corporate policy, automatic discovery, and applications with their own proxy settings can override it. Local mode never modifies OS proxy settings. Public proxy operators control their servers; availability and trust vary. HTTPS certificate validation stays enabled.
 
 ## Quick Connect
 
-Reachable candidates receive three HTTPS requests using Google's connectivity endpoint. Each row shows median successful latency and reliability (successful requests out of three); servers failing the initial TCP check have no HTTPS samples. A bounded Cloudflare HTTPS download estimates end-to-end speed, including TLS setup. Only the best five servers by reliability then median latency enter this stable download shortlist, with at most 1 MiB each / 5 MiB per pass. Cached download results are reused for seven days, so restarting does not rotate downloads through the entire feed.
+Reachable candidates receive three HTTPS requests using Google's connectivity endpoint. Simple mode shows latency and how recently the server was tested. Advanced mode adds reliability (successful requests out of three) and download estimates; servers failing the initial TCP check have no HTTPS samples. A bounded Cloudflare HTTPS download estimates end-to-end speed, including TLS setup. Only the best five servers by reliability then median latency enter this stable download shortlist, with at most 1 MiB each / 5 MiB per pass. Cached download results are reused for seven days, so restarting does not rotate downloads through the entire feed.
 
 The connection ranking puts full three-request results first, reliability second, then median latency plus the estimated time to transfer 256 KiB. Unknown download speed adds one second to that score; failed downloads rank last within the same quality/reliability tier. This balances response time, repeated success, and a measured transfer estimate. It selects the **best tested connection**, not a globally fastest server or a sustained bandwidth guarantee.
 
-Completed results, including failures, are saved progressively in a local **7-day cache**. Reopening resumes missing checks; automatic testing checks only new, changed, or expired profiles. Legacy cache files upgrade automatically: working one-probe entries receive three-request checks, while saved failures remain cached. Older measurements remain visible until replaced. Quick Connect reuses the cached ranking and verifies the chosen connection again. **Retest speeds** forces a fresh scan; use it after changing networks or routes because results reflect your machine and network.
+Completed results, including failures, are saved progressively in a local **7-day cache**. Reopening resumes missing checks; automatic testing checks only new, changed, or expired profiles. Legacy cache files upgrade automatically: working one-probe entries receive three-request checks, while saved failures remain cached. Older measurements remain visible until replaced. The large Connect button reuses the cached ranking and verifies the chosen connection again. A working result is usable before download testing finishes. Failed verification automatically tries other tested alternatives before reporting an error. **Retest speeds** forces a fresh scan; use it after changing networks or routes because results reflect your machine and network.
 
 When no cached server succeeds, Quick Connect samples up to 256 candidates across sources and countries, spends up to eight seconds checking TCP responsiveness, then compares HTTPS results through up to 20 responsive endpoints. Both stages keep sources represented so a large feed cannot crowd out smaller ones. Cancel stops the search and closes its temporary engine. A refresh discovers new profiles; there is no background subscription polling or silent server switching. Test endpoint availability can affect results. Supported protected protocols and successful tests do not guarantee censorship bypass on every network.
 
@@ -273,7 +275,7 @@ mvn package
 ./scripts/package-windows.ps1
 ```
 
-The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.6.6-Windows-x64.exe`, `Moondrop-0.6.6-macOS-arm64.dmg`, and `Moondrop-0.6.6-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
+The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.7.0-Windows-x64.exe`, `Moondrop-0.7.0-macOS-arm64.dmg`, and `Moondrop-0.7.0-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
 
 GitHub Actions builds the three native installers and portable downloads, and tests the native networking engine on Linux, macOS Apple Silicon, macOS Intel, and Windows. The sing-box engine downloads separately on first connection.
 
@@ -306,13 +308,17 @@ Shadowmere's [API implementation](https://github.com/shadowmere-xyz/shadowmere/b
 
 ### Settings
 
-Open **Settings** in the top right to choose automatic update checks, background server tests, nearby-first testing, and the default system proxy preference. Preferences are saved between launches. Existing speed results stay cached; Quick Connect verifies connections even when background tests are disabled. Nearby ordering changes apply when refreshing servers.
+Open **Settings** in the top right to choose automatic update checks, background server tests, and the default system proxy preference. **Advanced mode** is off by default and saved between launches. Enable it to reveal protocol switches and nearby-first testing in Settings, plus local proxy controls, detailed measurements, and engine activity in the main window. Turning it off preserves your protocol choices and active connection. Nearby ordering changes apply when refreshing servers.
+
+Select **Show server details** for the selected server’s protection explanation and measurements without enabling Advanced mode. The main button changes from **Connect** to **Cancel** during an attempt and **Disconnect** once connected. Status text explains saved-server checks, verification, fallback, and applying system proxy settings.
+
+Connection errors offer **Try another server**, **Retest servers**, and **Copy diagnostics**. Diagnostics are also available in Settings and include app/Java/OS versions, settings, server counts, and a broad error category. They exclude server addresses, credentials, paths, and raw logs.
 
 ### Protocol badges and preferences
 
-Every server row shows its protocol badge. Select a server to see its short strength label and an explanation: Shadowsocks **Encrypted proxy**, VLESS **TLS encryption** or **REALITY camouflage**, Trojan **TLS camouflage**, Hysteria 2 **HTTP/3 camouflage** (or **Obfuscated QUIC** when configured), and TUIC **TLS over QUIC**. These describe the configured transport, rather than ranking encryption strength or claiming post-quantum protection.
+Every server row shows its protocol badge. Select a server to see its short strength label, and expand **Show server details** for an explanation: Shadowsocks **Encrypted proxy**, VLESS **TLS encryption** or **REALITY camouflage**, Trojan **TLS camouflage**, Hysteria 2 **HTTP/3 camouflage** (or **Obfuscated QUIC** when configured), and TUIC **TLS over QUIC**. These describe the configured transport, rather than ranking encryption strength or claiming post-quantum protection.
 
-In **Settings → Enabled protocols**, toggle Shadowsocks, VLESS (including REALITY), Trojan, Hysteria 2, and TUIC. Disabled protocols disappear from the browser and are excluded from Quick Connect and background tests. An existing connection remains active until you disconnect. Re-enabling a protocol restores its servers and saved test results without a feed refresh. All protocols start enabled; disabling all of them shows a prompt to enable a protocol.
+In **Settings → Advanced mode → Protocols**, toggle Shadowsocks, VLESS (including REALITY), Trojan, Hysteria 2, and TUIC. Disabled protocols disappear from the browser and are excluded from Quick Connect and background tests. An existing connection remains active until you disconnect. Re-enabling a protocol restores its servers and saved test results without a feed refresh. All protocols start enabled; disabling all of them shows a prompt to enable a protocol.
 
 Protocol descriptions follow the [Shadowsocks documentation](https://shadowsocks.org/doc/what-is-shadowsocks.html), [sing-box VLESS settings](https://sing-box.sagernet.org/configuration/outbound/vless/), [REALITY documentation](https://xtls.github.io/en/config/transports/reality.html), [Trojan overview](https://trojan-gfw.github.io/trojan/overview.html), [Hysteria 2 documentation](https://v2.hysteria.network/docs/advanced/Full-Client-Config/), and [sing-box TUIC settings](https://sing-box.sagernet.org/configuration/outbound/tuic/).
 
