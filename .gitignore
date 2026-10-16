@@ -3,3 +3,13 @@
 /.tools/
 *.log
 .DS_Store
+
+# Android tools, generated bindings, private signing keys and local build products.
+/android/.gradle/
+/android/.native-build/
+/android/build/
+/android/app/build/
+/android/app/libs/*.aar
+/android/local.properties
+*.jks
+*.keystore
