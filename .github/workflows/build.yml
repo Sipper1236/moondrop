@@ -77,6 +77,10 @@ jobs:
           & $runtime "-Dshadowmere.dataDir=target/bundled-runtime-check" -jar target/native-image/Moondrop/app/moondrop.jar --install-engine
           if ($LASTEXITCODE -ne 0) { throw 'Bundled runtime networking check failed' }
           if (-not (Get-ChildItem dist/*.exe)) { throw 'Windows installer missing' }
+          $config = Get-Content -Raw target/native-image/Moondrop/app/Moondrop.cfg
+          if (-not $config.Contains('-Dmoondrop.distribution=native')) { throw 'Native installer update mode missing' }
+          mvn -B '-Dtest=AppUpdaterTest,UpdateInstallerTest' "-Dupdate.test.java=$runtime" test
+          if ($LASTEXITCODE -ne 0) { throw 'Bundled runtime updater checks failed' }
       - name: Build Mac disk image with Java
         if: runner.os == 'macOS'
         run: bash scripts/package-macos.sh
@@ -89,6 +93,8 @@ jobs:
           runtime="$PWD/target/dmg-check/Moondrop.app/Contents/runtime/Contents/Home/bin/java"
           "$runtime" --list-modules
           "$runtime" "-Dshadowmere.dataDir=$PWD/target/bundled-runtime-check" -jar "$PWD/target/dmg-check/Moondrop.app/Contents/app/moondrop.jar" --install-engine
+          grep -F -- '-Dmoondrop.distribution=native' "$PWD/target/dmg-check/Moondrop.app/Contents/app/Moondrop.cfg"
+          mvn -B -Dtest=AppUpdaterTest,UpdateInstallerTest "-Dupdate.test.java=$runtime" test
       - uses: actions/upload-artifact@v4
         with:
           name: Moondrop-${{ matrix.label }}

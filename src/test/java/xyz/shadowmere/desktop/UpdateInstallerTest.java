@@ -37,7 +37,7 @@ class UpdateInstallerTest {
     }
     private UpdateInstaller.Plan plan(Path old,Path staged,String version) throws Exception {
         return new UpdateInstaller.Plan(1,Instant.EPOCH.toString(),old,staged,directory.resolve("moondrop.jar.previous"),hash(staged),version,
-                Path.of(System.getProperty("java.home"),"bin",System.getProperty("os.name").startsWith("Windows")?"java.exe":"java"),directory);
+                Path.of(System.getProperty("update.test.java",Path.of(System.getProperty("java.home"),"bin",System.getProperty("os.name").startsWith("Windows")?"java.exe":"java").toString())),directory);
     }
     @Test void installsVerifiedJarAndKeepsRollbackCopy() throws Exception {
         Path old=jar("moondrop.jar","0.3.0"),next=jar("next.jar","0.3.1");byte[] original=Files.readAllBytes(old);
@@ -64,6 +64,7 @@ class UpdateInstallerTest {
         Path file=folder.resolve("update.properties");UpdateInstaller.writePlan(file,expected);assertEquals(expected,UpdateInstaller.readPlan(file));
     }
     @Test void standaloneHelperInstallsAndRelaunchesWithoutApplicationClasspath() throws Exception {
+        directory=Files.createDirectories(directory.resolve("portable app 雪"));
         Path old=jar("moondrop.jar","0.3.0"),next=directory.resolve("new.jar");
         Path source=directory.resolve("fixture/xyz/shadowmere/desktop/Main.java");Files.createDirectories(source.getParent());
         Files.writeString(source,"""

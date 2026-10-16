@@ -8,11 +8,11 @@ A small, independent Java desktop client for protected Shadowsocks, VLESS, Troja
 
 ## Install
 
-Download from the [Moondrop v0.6.5 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.5), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
+Download from the [Moondrop v0.6.6 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.6), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
 
 ### Windows installer
 
-1. Under **Assets**, download **Moondrop-0.6.5-Windows-x64.exe** for a Windows x64 PC.
+1. Under **Assets**, download **Moondrop-0.6.6-Windows-x64.exe** for a Windows x64 PC.
 2. Run the installer. It installs for your user account and creates Start menu and desktop shortcuts.
 3. Open **Moondrop** from either shortcut.
 
@@ -21,7 +21,7 @@ This release is unsigned. Windows SmartScreen or Microsoft Defender may warn abo
 ### macOS installer
 
 1. Open Apple menu → **About This Mac** to check your chip.
-2. Download **Moondrop-0.6.5-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.6.5-macOS-x64.dmg** for Intel.
+2. Download **Moondrop-0.6.6-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.6.6-macOS-x64.dmg** for Intel.
 3. Open the DMG and drag **Moondrop.app** into **Applications**. If that folder is not writable by your account, use `~/Applications` instead.
 4. Open Moondrop from Applications, then eject the installer disk.
 
@@ -114,7 +114,7 @@ java -version
 
 #### 2. Download the portable archive
 
-1. Open the [Moondrop v0.6.5 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.5). This is a prerelease.
+1. Open the [Moondrop v0.6.6 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.6.6). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 
@@ -273,7 +273,7 @@ mvn package
 ./scripts/package-windows.ps1
 ```
 
-The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.6.5-Windows-x64.exe`, `Moondrop-0.6.5-macOS-arm64.dmg`, and `Moondrop-0.6.5-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
+The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.6.6-Windows-x64.exe`, `Moondrop-0.6.6-macOS-arm64.dmg`, and `Moondrop-0.6.6-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
 
 GitHub Actions builds the three native installers and portable downloads, and tests the native networking engine on Linux, macOS Apple Silicon, macOS Intel, and Windows. The sing-box engine downloads separately on first connection.
 
@@ -315,3 +315,5 @@ Every server row shows its protocol badge. Select a server to see its short stre
 In **Settings → Enabled protocols**, toggle Shadowsocks, VLESS (including REALITY), Trojan, Hysteria 2, and TUIC. Disabled protocols disappear from the browser and are excluded from Quick Connect and background tests. An existing connection remains active until you disconnect. Re-enabling a protocol restores its servers and saved test results without a feed refresh. All protocols start enabled; disabling all of them shows a prompt to enable a protocol.
 
 Protocol descriptions follow the [Shadowsocks documentation](https://shadowsocks.org/doc/what-is-shadowsocks.html), [sing-box VLESS settings](https://sing-box.sagernet.org/configuration/outbound/vless/), [REALITY documentation](https://xtls.github.io/en/config/transports/reality.html), [Trojan overview](https://trojan-gfw.github.io/trojan/overview.html), [Hysteria 2 documentation](https://v2.hysteria.network/docs/advanced/Full-Client-Config/), and [sing-box TUIC settings](https://sing-box.sagernet.org/configuration/outbound/tuic/).
+
+The release workflow also runs the updater integrity, replacement, restart and rollback tests with the Java runtime inside each Windows and macOS package. It checks that native launchers select full-installer updates. Portable update fixtures use paths containing spaces and Unicode characters.

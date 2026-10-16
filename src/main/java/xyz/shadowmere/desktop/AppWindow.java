@@ -93,14 +93,23 @@ public final class AppWindow extends JFrame {
         header.add(brand,BorderLayout.WEST); refresh.addActionListener(e -> actions.refresh()); JPanel headerTools=new JPanel(new FlowLayout(FlowLayout.RIGHT,8,0));headerTools.setOpaque(false);updateStatus.setPreferredSize(new Dimension(125,30));headerTools.add(updateStatus);update.setToolTipText("Check GitHub for a newer Moondrop release");update.addActionListener(e -> {if(updateVersion!=null)actions.restartToUpdate();else actions.checkForUpdates();});headerTools.add(update);headerTools.add(refresh); settingsButton.addActionListener(e -> showSettings()); headerTools.add(settingsButton);header.add(headerTools,BorderLayout.EAST); root.add(header,BorderLayout.NORTH);
         JPanel body = new JPanel(new GridLayout(1,2,26,0)); body.setOpaque(false); root.add(body,BorderLayout.CENTER);
         JPanel browser = panel(new BorderLayout(0,14)); body.add(browser);
-        JPanel filters = vertical(); filters.add(label("EXPLORE LOCATIONS",MUTED,11)); filters.add(Box.createVerticalStrut(13));
-        search.putClientProperty("JTextField.placeholderText","Search country, city or server"); search.setMaximumSize(new Dimension(Integer.MAX_VALUE,38)); filters.add(search); filters.add(Box.createVerticalStrut(8)); country.setMaximumSize(new Dimension(Integer.MAX_VALUE,36));
-        country.setRenderer((list,value,index,selected,focus) -> {
-            JLabel item=(JLabel)new DefaultListCellRenderer().getListCellRendererComponent(list,value,index,selected,focus);
-            item.setBorder(new EmptyBorder(5,8,5,8));item.setIconTextGap(9);
-            String code=countryCodes.get(value);if(code!=null)item.setIcon(FlagIcons.get(code));
-            return item;
-        });filters.add(country); filters.add(Box.createVerticalStrut(8)); sort.setMaximumSize(new Dimension(Integer.MAX_VALUE,36)); filters.add(sort); sort.addActionListener(e -> filter()); browser.add(filters,BorderLayout.NORTH);
+        country.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list,Object value,int index,boolean selected,boolean focus) {
+                JLabel item=(JLabel)super.getListCellRendererComponent(list,value,index,selected,focus);
+                item.setBorder(new EmptyBorder(6,8,6,8));item.setIconTextGap(9);
+                item.setBackground(selected?new Color(44,66,65):new Color(32,44,55));item.setForeground(TEXT);
+                String code=countryCodes.get(value);item.setIcon(code==null?null:FlagIcons.get(code));
+                return item;
+            }
+        });
+        sort.setRenderer(new DefaultListCellRenderer() {
+            @Override public Component getListCellRendererComponent(JList<?> list,Object value,int index,boolean selected,boolean focus) {
+                JLabel item=(JLabel)super.getListCellRendererComponent(list,value,index,selected,focus);
+                item.setBorder(new EmptyBorder(6,8,6,8));item.setBackground(selected?new Color(44,66,65):new Color(32,44,55));item.setForeground(TEXT);return item;
+            }
+        });
+        browser.add(serverFilters(search,country,sort),BorderLayout.NORTH);
+        sort.addActionListener(e -> filter());
         servers.setBackground(PANEL); servers.setForeground(TEXT); servers.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); servers.setFixedCellHeight(84); servers.setFixedCellWidth(280); servers.setCellRenderer(new ServerRenderer());
         JScrollPane scroll = new JScrollPane(servers); scroll.setBorder(BorderFactory.createEmptyBorder()); scroll.getViewport().setBackground(PANEL); browser.add(scroll,BorderLayout.CENTER);
         JPanel listFooter = vertical(); JPanel counts = new JPanel(new BorderLayout(8,0)); counts.setOpaque(false); counts.add(count,BorderLayout.CENTER); retest.setToolTipText("Retest every server, including cached results. Use after changing networks or routes. Completed checks are saved even if testing stops."); retest.setMargin(new Insets(5,8,5,8)); retest.addActionListener(e -> actions.retestSpeeds()); counts.add(retest,BorderLayout.EAST); counts.setAlignmentX(Component.LEFT_ALIGNMENT); listFooter.add(counts); listFooter.add(Box.createVerticalStrut(6)); listFooter.add(speedProgress); speedProgress.setToolTipText("Three HTTPS checks measure reliability and median latency. The best five candidates receive a bounded 1 MiB download test. Completed results are reused for 7 days; scans resume missing checks."); browser.add(listFooter,BorderLayout.SOUTH);
@@ -257,6 +266,25 @@ public final class AppWindow extends JFrame {
         connect.setEnabled(busy||connected||(servers.getSelectedValue()!=null));
         systemProxy.setEnabled(systemProxySupported&&!busy&&!connected);
         servers.setEnabled(!busy&&!connected); search.setEnabled(!busy&&!connected); country.setEnabled(!busy&&!connected);
+    }
+    /** Bounded filter controls keep their shape as the server browser grows. */
+    static JPanel serverFilters(JTextField search,JComboBox<String> country,JComboBox<String> sort) {
+        JPanel fields=vertical();fields.add(label("EXPLORE LOCATIONS",MUTED,11));fields.add(Box.createVerticalStrut(13));
+        search.putClientProperty("JTextField.placeholderText","Search country, city or server");
+        search.putClientProperty("FlatLaf.style","background: #202c37; foreground: #edf0e7; borderColor: #3b4b57; focusedBorderColor: #9de5c1; arc: 10");
+        search.setAlignmentX(Component.LEFT_ALIGNMENT);search.setPreferredSize(new Dimension(640,38));search.setMaximumSize(new Dimension(640,38));
+        search.getAccessibleContext().setAccessibleName("Search servers");fields.add(search);fields.add(Box.createVerticalStrut(8));
+        JPanel dropdowns=new JPanel(new GridLayout(1,2,8,0));dropdowns.setOpaque(false);dropdowns.setAlignmentX(Component.LEFT_ALIGNMENT);
+        dropdowns.setPreferredSize(new Dimension(640,38));dropdowns.setMaximumSize(new Dimension(640,38));
+        String style="background: #202c37; foreground: #edf0e7; buttonBackground: #202c37; buttonArrowColor: #94a4ae; popupBackground: #202c37; borderColor: #3b4b57; focusedBorderColor: #9de5c1; arc: 10; selectionArc: 8; popupInsets: 4,4,4,4; selectionInsets: 0,2,0,2";
+        for(JComboBox<String> combo:List.of(country,sort)) {
+            combo.putClientProperty("FlatLaf.style",style);combo.setMinimumSize(new Dimension(0,38));combo.setMaximumRowCount(8);dropdowns.add(combo);
+        }
+        country.getAccessibleContext().setAccessibleName("Filter by location");sort.getAccessibleContext().setAccessibleName("Sort servers");
+        fields.add(dropdowns);
+        int height=fields.getPreferredSize().height;
+        fields.setPreferredSize(new Dimension(640,height));fields.setMaximumSize(new Dimension(640,height));fields.setMinimumSize(new Dimension(0,height));
+        JPanel strip=new JPanel();strip.setOpaque(false);strip.setLayout(new BoxLayout(strip,BoxLayout.X_AXIS));strip.add(fields);strip.add(Box.createHorizontalGlue());return strip;
     }
     private static JButton iconButton(String icon,String name) {
         JButton button=new JButton(new FlatSVGIcon("icons/"+icon+".svg",20,20));

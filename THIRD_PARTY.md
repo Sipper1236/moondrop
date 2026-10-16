@@ -21,3 +21,5 @@ The shaded JAR includes dependency license/notice files under META-INF. Moondrop
 - **IPWHOIS** — https://ipwhois.io/documentation. Runtime HTTPS lookup of approximate country; only the country code and lookup time are cached, without an IP address.
 
 - **Cloudflare Speed Test** — https://speed.cloudflare.com/. Its HTTPS download endpoint (`/__down?bytes=1048576`) is requested at runtime for bounded connection-speed estimates. No Cloudflare SDK or source code is copied or bundled.
+
+The question-mark fallback flag (`src/main/resources/flags/xx.svg`) is an original Moondrop asset.
