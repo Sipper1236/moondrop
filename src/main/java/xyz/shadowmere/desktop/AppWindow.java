@@ -43,7 +43,7 @@ public final class AppWindow extends JFrame {
             super.paintComponent(graphics);
             if (getModel().getSize() == 0) {
                 graphics.setColor(MUTED); graphics.setFont(new Font(Font.SANS_SERIF,Font.PLAIN,13));
-                String message = all.isEmpty() ? "Refresh to discover available servers" : "No servers match your search";
+                String message = actions.settings().enabledProtocols().isEmpty()?"Enable a protocol in Settings":all.isEmpty() ? "Refresh to discover available servers" : "No servers match your search";
                 graphics.drawString(message, Math.max(12, (getWidth()-graphics.getFontMetrics().stringWidth(message))/2), 48);
             }
         }
@@ -66,6 +66,10 @@ public final class AppWindow extends JFrame {
     private final JLabel detail = label("Your connection is unchanged.", MUTED, 13);
     private final JLabel selectedName = label("Choose a server", TEXT, 19);
     private final JLabel selectedDetail = label("Select a location from the list.", MUTED, 12);
+    private final JLabel selectedProtocol = new ProtocolBadge();
+    private final JLabel selectedStrength = label("",MINT,11);
+    private final JLabel selectedExplanation = label("",MUTED,11);
+    private final JPanel selectedProtection = vertical();
     private final JButton quickConnect = new JButton("Quick Connect");
     private final JButton connect = new JButton("Connect selected server"), refresh = iconButton("refresh", "Refresh servers"), install = new JButton("Install engine");
     private final JCheckBox systemProxy = new JCheckBox("Use as system proxy");
@@ -98,13 +102,17 @@ public final class AppWindow extends JFrame {
             String code=countryCodes.get(value);if(code!=null)item.setIcon(FlagIcons.get(code));
             return item;
         });filters.add(country); filters.add(Box.createVerticalStrut(8)); sort.setMaximumSize(new Dimension(Integer.MAX_VALUE,36)); filters.add(sort); sort.addActionListener(e -> filter()); browser.add(filters,BorderLayout.NORTH);
-        servers.setBackground(PANEL); servers.setForeground(TEXT); servers.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); servers.setFixedCellHeight(69); servers.setFixedCellWidth(280); servers.setCellRenderer(new ServerRenderer());
+        servers.setBackground(PANEL); servers.setForeground(TEXT); servers.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); servers.setFixedCellHeight(84); servers.setFixedCellWidth(280); servers.setCellRenderer(new ServerRenderer());
         JScrollPane scroll = new JScrollPane(servers); scroll.setBorder(BorderFactory.createEmptyBorder()); scroll.getViewport().setBackground(PANEL); browser.add(scroll,BorderLayout.CENTER);
         JPanel listFooter = vertical(); JPanel counts = new JPanel(new BorderLayout(8,0)); counts.setOpaque(false); counts.add(count,BorderLayout.CENTER); retest.setToolTipText("Retest every server, including cached results. Use after changing networks or routes. Completed checks are saved even if testing stops."); retest.setMargin(new Insets(5,8,5,8)); retest.addActionListener(e -> actions.retestSpeeds()); counts.add(retest,BorderLayout.EAST); counts.setAlignmentX(Component.LEFT_ALIGNMENT); listFooter.add(counts); listFooter.add(Box.createVerticalStrut(6)); listFooter.add(speedProgress); speedProgress.setToolTipText("Three HTTPS checks measure reliability and median latency. The best five candidates receive a bounded 1 MiB download test. Completed results are reused for 7 days; scans resume missing checks."); browser.add(listFooter,BorderLayout.SOUTH);
         JPanel right = new JPanel(new BorderLayout(0,18)); right.setOpaque(false); body.add(right);
         JPanel connection = panel(new BorderLayout(0,10)); connection.setBorder(new EmptyBorder(16,20,16,20)); right.add(connection,BorderLayout.NORTH);
         JPanel state = vertical(); state.add(label("YOUR CONNECTION",MUTED,11)); state.add(Box.createVerticalStrut(10)); state.add(status); state.add(Box.createVerticalStrut(8)); state.add(detail); connection.add(state,BorderLayout.NORTH);
-        JPanel chosen = vertical(); chosen.add(selectedName); chosen.add(Box.createVerticalStrut(5)); chosen.add(selectedDetail); chosen.add(Box.createVerticalStrut(14));
+        JPanel chosen = vertical(); chosen.add(selectedName); chosen.add(Box.createVerticalStrut(5)); chosen.add(selectedDetail); chosen.add(Box.createVerticalStrut(10));
+        JPanel selectedFeatures=new JPanel(new FlowLayout(FlowLayout.LEFT,8,0));selectedFeatures.setOpaque(false);selectedFeatures.setAlignmentX(Component.LEFT_ALIGNMENT);
+        selectedFeatures.add(selectedProtocol);selectedFeatures.add(selectedStrength);
+        selectedProtection.add(selectedFeatures);selectedProtection.add(Box.createVerticalStrut(6));selectedProtection.add(selectedExplanation);
+        selectedProtection.setVisible(false);chosen.add(selectedProtection);chosen.add(Box.createVerticalStrut(14));
         systemProxy.setOpaque(false); systemProxy.setForeground(TEXT); systemProxy.setAlignmentX(Component.LEFT_ALIGNMENT); chosen.add(systemProxy); chosen.add(Box.createVerticalStrut(6)); chosen.add(label("Off: connect apps to SOCKS5 127.0.0.1:17890",MUTED,11)); chosen.add(Box.createVerticalStrut(5)); chosen.add(label("On: supported apps use your system proxy settings.",MUTED,11)); connection.add(chosen,BorderLayout.CENTER);
         connect.setPreferredSize(new Dimension(200,44)); connect.setBackground(new Color(43,58,67)); connect.setForeground(TEXT); connect.setFont(connect.getFont().deriveFont(Font.BOLD,14)); connect.addActionListener(e -> {if(connected || busy) actions.disconnect(); else if(servers.getSelectedValue()!=null) actions.connect(servers.getSelectedValue(),systemProxy.isSelected());}); JPanel connectionButtons = vertical();
         quickConnect.setBackground(MINT); quickConnect.setForeground(BG); quickConnect.setFont(quickConnect.getFont().deriveFont(Font.BOLD,21)); quickConnect.setAlignmentX(Component.LEFT_ALIGNMENT); quickConnect.setMaximumSize(new Dimension(Integer.MAX_VALUE,84)); quickConnect.setMinimumSize(new Dimension(250,84)); quickConnect.setPreferredSize(new Dimension(350,84)); quickConnect.putClientProperty("FlatLaf.style","arc: 20");quickConnect.setToolTipText("Automatically test servers and connect to the fastest verified result");quickConnect.addActionListener(e -> actions.quickConnect(systemProxy.isSelected()));
@@ -114,7 +122,7 @@ public final class AppWindow extends JFrame {
         log.setEditable(false); log.setLineWrap(true); log.setWrapStyleWord(true); log.setBackground(PANEL); log.setForeground(MUTED); log.setFont(new Font(Font.MONOSPACED,Font.PLAIN,11)); JScrollPane logs = new JScrollPane(log); logs.setBorder(BorderFactory.createEmptyBorder()); logs.setPreferredSize(new Dimension(300,120)); engine.add(logs,BorderLayout.CENTER);
         JPanel footer = new JPanel(new BorderLayout()); footer.setOpaque(false); footer.add(label("Community servers · Availability and privacy vary by operator",MUTED,11),BorderLayout.WEST); JButton folder = new JButton("App files"); folder.addActionListener(e -> actions.openDataFolder()); footer.add(folder,BorderLayout.EAST); root.add(footer,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();}public void removeUpdate(DocumentEvent e){filter();}public void changedUpdate(DocumentEvent e){filter();}});
-        country.addActionListener(e -> {if(!updatingFilters)filter();}); servers.addListSelectionListener(e -> {if(connected||rebuilding)return; Server s=servers.getSelectedValue(); selectedName.setText(s==null?"Choose a server":s.countryName());selectedName.setIcon(s==null?null:FlagIcons.get(s.country()));selectedName.setIconTextGap(10); selectedDetail.setText(s==null?"Select a location from the list.":s.displayName()); updateControls();}); updateControls();
+        country.addActionListener(e -> {if(!updatingFilters)filter();}); servers.addListSelectionListener(e -> {if(connected||rebuilding)return; showSelection(servers.getSelectedValue()); updateControls();}); updateControls();
     }
     private void showSettings() {
         AppSettings current=actions.settings();
@@ -128,6 +136,16 @@ public final class AppWindow extends JFrame {
         for(JCheckBox option:List.of(updates,testing,nearby,proxy)) {
             option.setOpaque(false);option.setAlignmentX(Component.LEFT_ALIGNMENT);content.add(option);content.add(Box.createVerticalStrut(8));
         }
+        content.add(Box.createVerticalStrut(8));content.add(label("ENABLED PROTOCOLS",MUTED,11));content.add(Box.createVerticalStrut(8));
+        Map<String,JCheckBox> protocols=new java.util.LinkedHashMap<>();
+        for(String protocol:AppSettings.PROTOCOLS) {
+            String name=switch(protocol) {case "shadowsocks" -> "Shadowsocks";case "vless" -> "VLESS (TLS / REALITY)";case "trojan" -> "Trojan";case "hysteria2" -> "Hysteria 2";default -> "TUIC";};
+            JCheckBox option=new JCheckBox(name,current.enabledProtocols().contains(protocol));
+            option.setOpaque(false);option.setAlignmentX(Component.LEFT_ALIGNMENT);protocols.put(protocol,option);
+            content.add(option);content.add(Box.createVerticalStrut(5));
+        }
+        content.add(label("Disabled protocols are hidden and skipped. Current connections stay active.",MUTED,11));
+        content.add(Box.createVerticalStrut(10));
         content.add(label("Saved tests stay cached for 7 days. Quick Connect still verifies servers.",MUTED,11));
         content.add(Box.createVerticalStrut(6));
         content.add(label("Nearby ordering uses an approximate country lookup on refresh.",MUTED,11));
@@ -135,7 +153,7 @@ public final class AppWindow extends JFrame {
         content.add(label(systemProxySupported?"Proxy preference applies to your next connection.":"Use local SOCKS5 / HTTP at 127.0.0.1:17890 on this platform.",MUTED,11));
         int choice=JOptionPane.showOptionDialog(this,content,"Settings",JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE,null,new String[]{"Save settings","Cancel"},"Save settings");
-        if(choice==0&&actions.saveSettings(new AppSettings(updates.isSelected(),testing.isSelected(),nearby.isSelected(),proxy.isSelected()))) {
+        if(choice==0&&actions.saveSettings(new AppSettings(updates.isSelected(),testing.isSelected(),nearby.isSelected(),proxy.isSelected(),protocols.entrySet().stream().filter(entry -> entry.getValue().isSelected()).map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet())))) {
             if(!busy&&!connected)systemProxy.setSelected(systemProxySupported&&proxy.isSelected());
         }
     }
@@ -184,7 +202,7 @@ public final class AppWindow extends JFrame {
             viewport.setViewPosition(new Point(view.x,Math.max(0,Math.min(view.y,model.size()*servers.getFixedCellHeight()-viewport.getHeight()))));
         } finally { rebuilding=false; }
         Server selected=servers.getSelectedValue();
-        if(!connected){selectedName.setText(selected==null?"Choose a server":selected.countryName()); selectedName.setIcon(selected==null?null:FlagIcons.get(selected.country())); selectedName.setIconTextGap(10); selectedDetail.setText(selected==null?"Select a location from the list.":selected.displayName());}
+        if(!connected)showSelection(selected);
         count.setText(model.size()+" servers"); servers.repaint(); updateControls();
     }
     public void setPerformance(Server server,ServerPerformance value){performance.put(server,value);if(!performanceRefresh.isRunning())performanceRefresh.start();}
@@ -213,12 +231,23 @@ public final class AppWindow extends JFrame {
     public void selectServer(Server server){
         if(server==null)return;
         search.setText(""); country.setSelectedIndex(0); servers.setSelectedValue(server,true);
-        selectedName.setText(server.countryName()); selectedName.setIcon(FlagIcons.get(server.country())); selectedName.setIconTextGap(10); selectedDetail.setText(server.displayName());
+        showSelection(server);
+    }
+    private void showSelection(Server server) {
+        selectedName.setText(server==null?"Choose a server":server.countryName());
+        selectedName.setIcon(server==null?null:FlagIcons.get(server.country()));selectedName.setIconTextGap(10);
+        selectedDetail.setText(server==null?"Select a location from the list.":server.displayName());
+        selectedProtection.setVisible(server!=null);
+        if(server!=null) {
+            selectedProtocol.setText(server.protocolName());selectedStrength.setText(server.protectionLabel());
+            selectedExplanation.setText("<html><div style='width:260px'>"+escape(server.protectionDetail())+"</div></html>");
+            selectedProtocol.setToolTipText(server.protectionDetail());selectedStrength.setToolTipText(server.protectionDetail());
+        }
     }
     public void setSystemProxySupported(boolean supported){systemProxySupported=supported;systemProxy.setSelected(supported&&actions.settings().systemProxy());systemProxy.setToolTipText(supported?null:"System proxy settings are available on macOS and Windows. Use the local SOCKS5 endpoint on this platform.");updateControls();}
     public void setBusy(boolean value){busy=value; updateControls();}
     public void setCoreReady(boolean value){coreReady=value; install.setText(value?"Engine ready":"Install engine"); updateControls();}
-    public void setConnection(String state,String description,boolean value){if(connected&&!value)systemProxy.setSelected(systemProxySupported&&actions.settings().systemProxy());connected=value;status.setText(state);status.setForeground(value?MINT:TEXT);detail.setText("<html><div style='width:270px'>"+escape(description)+"</div></html>");detail.setToolTipText(description);updateControls();}
+    public void setConnection(String state,String description,boolean value){boolean wasConnected=connected;if(wasConnected&&!value)systemProxy.setSelected(systemProxySupported&&actions.settings().systemProxy());connected=value;if(wasConnected&&!value)showSelection(servers.getSelectedValue());status.setText(state);status.setForeground(value?MINT:TEXT);detail.setText("<html><div style='width:270px'>"+escape(description)+"</div></html>");detail.setToolTipText(description);updateControls();}
     public void showError(String title,String description){JTextArea text=new JTextArea(description,7,48);text.setEditable(false);text.setLineWrap(true);text.setWrapStyleWord(true);text.setOpaque(false);JOptionPane.showMessageDialog(this,text,title,JOptionPane.ERROR_MESSAGE);}
     public void appendLog(String text){log.append(text+"\n");log.setCaretPosition(log.getDocument().getLength());}
     private void updateControls(){
@@ -250,13 +279,22 @@ public final class AppWindow extends JFrame {
     private static JPanel vertical(){JPanel p=new JPanel();p.setLayout(new BoxLayout(p,BoxLayout.Y_AXIS));p.setOpaque(false);return p;}
     private static JLabel label(String text,Color color,int size){JLabel l=new JLabel(text);l.setForeground(color);l.setFont(new Font(Font.SANS_SERIF,size>=19?Font.BOLD:Font.PLAIN,size));l.setAlignmentX(Component.LEFT_ALIGNMENT);return l;}
     private final class ServerRenderer extends JPanel implements ListCellRenderer<Server>{
-        private final JLabel title=label("",TEXT,14), sub=label("",MUTED,11), icon=label("",MINT,12), latency=label("",MINT,12);
-        ServerRenderer(){setLayout(new BorderLayout(12,0));setBorder(new EmptyBorder(10,12,10,12)); JPanel t=vertical();t.add(title);t.add(Box.createVerticalStrut(5));t.add(sub);add(icon,BorderLayout.WEST);add(t,BorderLayout.CENTER);latency.setHorizontalAlignment(SwingConstants.RIGHT);add(latency,BorderLayout.EAST);}
-        public Component getListCellRendererComponent(JList<? extends Server> list,Server s,int index,boolean selected,boolean focus){setBackground(selected?new Color(44,66,65):PANEL);icon.setText(null);icon.setIcon(FlagIcons.get(s.country()));title.setText(s.countryName());sub.setText(s.protocolName()+" · "+source(s)+" · "+s.displayName());
+        private final JLabel title=label("",TEXT,14), sub=label("",MUTED,11), icon=label("",MINT,12), latency=label("",MINT,11), protocol=new ProtocolBadge();
+        ServerRenderer(){setLayout(new BorderLayout(10,0));setBorder(new EmptyBorder(8,10,8,10)); JPanel t=vertical();t.add(title);t.add(Box.createVerticalStrut(4));t.add(sub);t.add(Box.createVerticalStrut(5));t.add(protocol);add(icon,BorderLayout.WEST);add(t,BorderLayout.CENTER);latency.setHorizontalAlignment(SwingConstants.RIGHT);add(latency,BorderLayout.EAST);}
+        public Component getListCellRendererComponent(JList<? extends Server> list,Server s,int index,boolean selected,boolean focus){setBackground(selected?new Color(44,66,65):PANEL);icon.setText(null);icon.setIcon(FlagIcons.get(s.country()));title.setText(s.countryName());sub.setText(source(s)+" · "+s.displayName());protocol.setText(s.protocolName());
             ServerPerformance result=performanceFor(s); latency.setText(result.label());
             latency.setForeground(result.successful()?(result.fresh()?MINT:MUTED):result.state()==ServerPerformance.State.FAILED?new Color(220,143,136):MUTED);
             String tooltip=result.state()==ServerPerformance.State.UNTESTED?"Latency has not been tested yet":result.state()==ServerPerformance.State.TESTING?"Checking verified HTTPS round-trip latency…": "Latency checked "+DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(result.checkedAt())+(result.fresh()?" · cached":" · saved, awaiting recheck")+". "+(result.attempts()>0?result.successes()+"/"+result.attempts()+" HTTPS checks succeeded; latency is the median of successful checks. ":"")+(result.bytesPerSecond()>0?"Download estimate "+String.format(Locale.ROOT,"%.1f Mb/s",result.bytesPerSecond()*8.0/1_000_000):result.bytesPerSecond()==0?"Download test failed.":"Download has not been measured.");
             setToolTipText(tooltip);return this;}
+    }
+    private static final class ProtocolBadge extends JLabel {
+        ProtocolBadge(){setFont(new Font(Font.SANS_SERIF,Font.BOLD,10));setForeground(new Color(212,233,223));setBorder(new EmptyBorder(3,7,3,7));setAlignmentX(Component.LEFT_ALIGNMENT);}
+        @Override public Dimension getMaximumSize(){return getPreferredSize();}
+        @Override protected void paintComponent(Graphics g){
+            Graphics2D p=(Graphics2D)g.create();p.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
+            p.setColor(new Color(37,58,53));p.fillRoundRect(0,0,getWidth(),getHeight(),8,8);
+            p.setColor(new Color(71,96,82));p.drawRoundRect(0,0,getWidth()-1,getHeight()-1,8,8);p.dispose();super.paintComponent(g);
+        }
     }
     /** Replaces a full feed in a bounded number of events, rather than one event per row. */
     static final class ServerListModel extends AbstractListModel<Server> {

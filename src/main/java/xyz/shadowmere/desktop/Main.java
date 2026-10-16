@@ -141,12 +141,16 @@ public final class Main implements AppWindow.Actions {
         catch(IOException e) { window.showError("Could not save settings",safeMessage(e)); return false; }
         AppSettings previous=settings; settings=next;
         if(!next.nearbyFirst())nearbyCountry=null;
-        if(!next.automaticTesting())cancelSpeedTests();
-        else if(!previous.automaticTesting()&&!servers.isEmpty())startSpeedTests(false);
+        boolean protocolsChanged=!next.enabledProtocols().equals(previous.enabledProtocols());
+        if(protocolsChanged)window.setServers(eligibleServers());
+        if(!next.automaticTesting()||protocolsChanged)cancelSpeedTests();
+        if(next.automaticTesting()&&(protocolsChanged||!previous.automaticTesting())&&!servers.isEmpty())startSpeedTests(false);
         if(next.automaticUpdates()&&!previous.automaticUpdates())checkForUpdates();
         log("Settings saved.");
         return true;
     }
+
+    private List<Server> eligibleServers() { return settings.eligible(servers); }
 
     @Override public void refresh() {submit("Refreshing servers",this::loadServers);}
     private void loadServers() throws Exception {
@@ -161,7 +165,7 @@ public final class Main implements AppWindow.Actions {
         try {performance.replaceAll(performanceCache.load(fresh));}catch(IOException e){log("Could not read saved latency results. Servers will be checked again.");}
         Map<String,ServerPerformance> saved=performance.snapshot();
         ui(() -> {
-            window.clearPerformance();window.setServers(fresh);
+            window.clearPerformance();window.setServers(eligibleServers());
             for(Server server:fresh) {ServerPerformance p=saved.get(PerformanceCache.serverKey(server));if(p!=null)window.setPerformance(server,p);}
             if(!connected)window.setConnection("Disconnected","Choose Quick Connect or select a location.",false);
         });
@@ -180,7 +184,9 @@ public final class Main implements AppWindow.Actions {
             ensureEngine();
             if(servers.isEmpty()) loadServers();
             cancelSpeedTests();
-            List<Server> ranked=performance.ranked(servers).stream().limit(3).toList();
+            List<Server> eligible=eligibleServers();
+            if(eligible.isEmpty())throw new IOException("No enabled protocols have servers. Enable a protocol in Settings or refresh the server list.");
+            List<Server> ranked=performance.ranked(eligible).stream().limit(3).toList();
             for(Server cached:ranked) {
                 ServerPerformance quality=performance.snapshot().get(PerformanceCache.serverKey(cached));
                 if(quality==null||!quality.hasQuality()||!quality.throughputFresh())break;
@@ -193,7 +199,7 @@ public final class Main implements AppWindow.Actions {
                     if(result==null||result.state()!=ServerPerformance.State.FAILED)throw failure;
                 }
             }
-            List<Server> candidates=performance.quickCandidates(servers);
+            List<Server> candidates=performance.quickCandidates(eligible);
             if(candidates.isEmpty())throw new IOException("No recently tested servers are working. Use Retest speeds or refresh the server list.");
             QuickConnect.Result result=new QuickConnect().find(candidates,installer.binary(),data,progress -> {
                 log(progress); ui(() -> window.setConnection("Finding a server",progress,false));
@@ -211,9 +217,11 @@ public final class Main implements AppWindow.Actions {
 
     private void startSpeedTests(boolean force) {
         cancelSpeedTests();
-        List<Server> pending=ServerProximity.prioritize(performance.pending(servers,force),nearbyCountry);
-        int reused=servers.size()-pending.size();
-        if(pending.isEmpty()&&performance.bandwidthCandidates(servers,5).isEmpty()) {ui(() -> window.setSpeedTesting(false,"Using "+reused+" saved checks · 7-day cache"));return;}
+        List<Server> eligible=eligibleServers();
+        if(eligible.isEmpty()) {ui(() -> window.setSpeedTesting(false,"No servers for enabled protocols"));return;}
+        List<Server> pending=ServerProximity.prioritize(performance.pending(eligible,force),nearbyCountry);
+        int reused=eligible.size()-pending.size();
+        if(pending.isEmpty()&&performance.bandwidthCandidates(eligible,5).isEmpty()) {ui(() -> window.setSpeedTesting(false,"Using "+reused+" saved checks · 7-day cache"));return;}
         int generation=speedGeneration.incrementAndGet();speedTesting=true;
         ui(() -> window.setSpeedTesting(true,reused+" cached · "+pending.size()+" checks remaining…"));
         speedTask=speedWorker.submit(() -> {
@@ -229,7 +237,7 @@ public final class Main implements AppWindow.Actions {
                 if(speedGeneration.get()!=generation||closing.get()||Thread.currentThread().isInterrupted())return;
                 Map<Server,ServerPerformance> downloads=new java.util.LinkedHashMap<>();
                 Map<String,ServerPerformance> saved=performance.snapshot();
-                for(Server candidate:performance.bandwidthCandidates(servers,5))downloads.put(candidate,saved.get(PerformanceCache.serverKey(candidate)));
+                for(Server candidate:performance.bandwidthCandidates(eligible,5))downloads.put(candidate,saved.get(PerformanceCache.serverKey(candidate)));
                 tester.testThroughput(downloads,installer.binary(),data,record,progress);
             } catch(InterruptedException|CancellationException ignored) {Thread.currentThread().interrupt();}
             catch(Exception e) {if(speedGeneration.get()==generation&&!closing.get())log("Latency checks: "+safeMessage(e));}
@@ -283,6 +291,7 @@ public final class Main implements AppWindow.Actions {
     }
 
     private void connectNow(Server server,boolean useSystem,Long measured) throws Exception {
+        if(!settings.allows(server))throw new IOException("This protocol is disabled. Enable it in Settings before connecting.");
         cleanup(); checkCancelled();
         if(!installer.ready()) throw new IOException("Install the engine first.");
         ProxyEngine.ensurePortFree(ProxyEngine.PORT);

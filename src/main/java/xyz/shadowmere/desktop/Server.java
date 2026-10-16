@@ -62,6 +62,29 @@ public record Server(String id, String host, int port, String method, String pas
         };
     }
 
+    public String protectionLabel() {
+        return switch(protocol) {
+            case "vless" -> protocolName().contains("REALITY")?"REALITY camouflage":"TLS encryption";
+            case "trojan" -> "TLS camouflage";
+            case "hysteria2" -> profileJson.contains("\"obfs\":")?"Obfuscated QUIC":"HTTP/3 camouflage";
+            case "tuic" -> "TLS over QUIC";
+            default -> "Encrypted proxy";
+        };
+    }
+    public String protectionDetail() {
+        return switch(protocol) {
+            case "vless" -> protocolName().contains("REALITY")
+                    ? "REALITY uses a target site's TLS handshake characteristics for camouflage."
+                    : "This VLESS configuration encrypts the proxy connection with verified TLS.";
+            case "trojan" -> "Trojan carries proxy traffic over verified TLS and is designed to resemble HTTPS.";
+            case "hysteria2" -> profileJson.contains("\"obfs\":")
+                    ? "This Hysteria 2 configuration adds obfuscation to its encrypted QUIC transport."
+                    : "Hysteria 2 uses encrypted QUIC and is designed to resemble an HTTP/3 server.";
+            case "tuic" -> "TUIC uses TLS-protected QUIC with independent streams and UDP support.";
+            default -> "Shadowsocks encrypts the proxy connection using "+method+".";
+        };
+    }
+
     public String displayName() { return location.isBlank() ? host : location; }
     public String countryName() {
         return country.isBlank() ? "Other locations" : new Locale("", country).getDisplayCountry(Locale.ENGLISH);
