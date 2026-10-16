@@ -64,6 +64,7 @@ public final class AppWindow extends JFrame {
     private final JLabel automaticHint = label("Automatically chooses the best tested server", MUTED, 11);
     private final Timer performanceRefresh = new Timer(150, e -> filter());
     private boolean speedTesting, rebuilding;
+    private boolean catalogRefreshing, savedCatalog;
     private final JLabel count = label("Refresh to discover servers", MUTED, 12);
     private final JLabel status = label("Disconnected", TEXT, 28);
     private final JLabel detail = label("Your connection is unchanged.", MUTED, 13);
@@ -242,6 +243,11 @@ public final class AppWindow extends JFrame {
     public void setPerformance(Server server,ServerPerformance value){performance.put(server,value);if(!performanceRefresh.isRunning())performanceRefresh.start();}
     public void clearPerformance(){performance.clear();performanceRefresh.stop();filter();}
     public void setSpeedTesting(boolean running,String progress){speedTesting=running;retest.setText(running?"Stop testing":"Retest speeds");retest.setToolTipText(running?"Stop testing and keep completed results. Automatic checks resume missing results on the next launch.":"Retest every server, including cached results. Use after changing networks or routes.");speedProgress.setText(progress!=null&&!progress.isBlank()?progress:running?"Testing latency · progress saved…":"Latency · 7-day cache");updateDiscovery();updateControls();}
+    public void setCatalogRefreshing(boolean running,boolean saved) {
+        catalogRefreshing=running;savedCatalog=saved;
+        refresh.setToolTipText(running?"Refreshing servers in the background…":"Refresh servers");
+        updateDiscovery();updateControls();
+    }
     public void setUpdateStatus(String text,boolean running){
         updateBusy=running;
         updateStatus.setText(text==null?"":text);
@@ -298,15 +304,16 @@ public final class AppWindow extends JFrame {
     private void updateDiscovery(){
         long checked=all.stream().map(this::performanceFor).filter(ServerPerformance::completed).count();
         long working=all.stream().map(this::performanceFor).filter(result -> result.successful()&&result.fresh()).count();
-        String message=actions.settings().enabledProtocols().isEmpty()?"Enable a protocol in Settings → Advanced mode.":all.isEmpty()?"No servers available yet. Use Refresh to try again.":speedTesting&&working==0?"Finding your fastest connection… "+checked+" checked":
+        String message=actions.settings().enabledProtocols().isEmpty()?"Enable a protocol in Settings → Advanced mode.":all.isEmpty()?(catalogRefreshing?"Downloading server list…":"No servers available yet. Use Refresh to try again."):speedTesting&&working==0?"Finding your fastest connection… "+checked+" checked":
                 speedTesting?working+" working · "+checked+" checked · testing continues":
                 checked>0?working+" working · saved tests reused for 7 days":"Connect to find a working server, or start testing.";
-        discovery.setText("<html><div style='width:260px'>"+escape(message)+"</div></html>");
+        String cacheNote=catalogRefreshing&&!all.isEmpty()?"Saved servers ready · refreshing list…<br>":savedCatalog?"Using saved servers · refresh unavailable<br>":"";
+        discovery.setText("<html><div style='width:260px'>"+cacheNote+escape(message)+"</div></html>");
     }
     public void appendLog(String text){log.append(text+"\n");log.setCaretPosition(log.getDocument().getLength());}
     private void updateControls(){
         retest.setEnabled(speedTesting||(!busy&&!all.isEmpty())); sort.setEnabled(!busy);
-        settingsButton.setEnabled(!busy); refresh.setEnabled(!busy); install.setEnabled(!busy&&!coreReady&&!connected);
+        settingsButton.setEnabled(!busy); refresh.setEnabled(!busy&&!catalogRefreshing); install.setEnabled(!busy&&!coreReady&&!connected);
         quickConnect.setText(busy?"Cancel":connected?"Disconnect":"Connect");
         quickConnect.setEnabled(busy||connected||!all.isEmpty());
         automaticHint.setText(connected?"Connected server verified with HTTPS":busy?"Checking the connection…":"Automatically chooses the best tested server");

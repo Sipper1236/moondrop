@@ -26,6 +26,10 @@ public final class Main implements AppWindow.Actions {
     private volatile PendingUpdate pendingUpdate;
     private volatile AppUpdater.Release nativeUpdate;
     private final PerformanceCache performanceCache;
+    private final ServerCache serverCache;
+    private final ServerCatalog catalog;
+    private final ExecutorService catalogWorker=Executors.newSingleThreadExecutor(r -> {Thread t=new Thread(r,"catalog-refresh");t.setDaemon(true);return t;});
+    private final AtomicBoolean refreshingCatalog=new AtomicBoolean();
     private final ServerProximity proximity;
     private volatile String nearbyCountry;
     private final PerformanceResults performance = new PerformanceResults();
@@ -48,7 +52,8 @@ public final class Main implements AppWindow.Actions {
     private FileChannel lockChannel;
     private FileLock lock;
 
-    private Main(Path data) { this.data=data; installer=new CoreInstaller(data); system=new SystemProxy(data);performanceCache=new PerformanceCache(data);proximity=new ServerProximity(data);updater=new AppUpdater(data); }
+    private Main(Path data) {this(data,new ServerCatalog());}
+    Main(Path data,ServerCatalog catalog) { this.data=data;this.catalog=catalog;serverCache=new ServerCache(data);installer=new CoreInstaller(data); system=new SystemProxy(data);performanceCache=new PerformanceCache(data);proximity=new ServerProximity(data);updater=new AppUpdater(data); }
 
     public static void main(String[] args) {
         if(args.length>0 && (args[0].equals("--install-engine")||args[0].equals("--smoke-test"))) {
@@ -111,7 +116,7 @@ public final class Main implements AppWindow.Actions {
         window.addWindowListener(new WindowAdapter(){@Override public void windowClosing(WindowEvent e){shutdown();}});
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             closing.set(true); Future<?> running=task; if(running!=null) running.cancel(true);
-            updateWorker.shutdownNow();
+            updateWorker.shutdownNow();catalogWorker.shutdownNow();
             cancelSpeedTests();speedWorker.shutdownNow();
             worker.shutdownNow();
             try {worker.awaitTermination(15,TimeUnit.SECONDS);speedWorker.awaitTermination(10,TimeUnit.SECONDS); cleanup();} catch(Exception ignored) { }
@@ -131,11 +136,11 @@ public final class Main implements AppWindow.Actions {
             }
         },2,2,TimeUnit.SECONDS);
         submit("Loading servers", () -> {
+            loadInitialServers();
             if(system.hasRecovery()) {system.restore(); log("Recovered proxy settings from the previous session.");}
             ProxyEngine.recover(installer.binary(),data);
             // Configurations contain public server credentials; remove remnants from an interrupted run.
             try(var files=Files.list(data)) {for(Path p:files.filter(p -> p.getFileName().toString().startsWith("session-")&&p.toString().endsWith(".json")).toList()) Files.deleteIfExists(p);}
-            loadServers();
         });
     }
 
@@ -156,27 +161,72 @@ public final class Main implements AppWindow.Actions {
 
     private List<Server> eligibleServers() { return settings.eligible(servers); }
 
-    @Override public void refresh() {submit("Refreshing servers",this::loadServers);}
+    @Override public void refresh() { refreshCatalog(); }
+
+    /** Disk first: no feed or location request may delay the saved list. */
+    void loadInitialServers() {
+        try {
+            List<Server> cached=serverCache.load();
+            if(!cached.isEmpty()) {
+                showServers(cached);
+                log("Loaded "+cached.size()+" saved servers and their cached measurements.");
+                ui(() -> {if(!connected)window.setConnection("Disconnected","Saved servers are ready. Choose Connect while the list refreshes.",false);});
+            }
+        } catch(IOException unavailable) { log("Could not read saved servers. Downloading a fresh list."); }
+        refreshCatalog();
+    }
+
+    private void refreshCatalog() {
+        if(closing.get()||!refreshingCatalog.compareAndSet(false,true))return;
+        ui(() -> window.setCatalogRefreshing(true,!servers.isEmpty()));
+        catalogWorker.submit(() -> {
+            try {
+                ServerCatalog.Result fresh=catalog.fetch();
+                String country=settings.nearbyFirst()?proximity.locate().orElse(null):null;
+                if(closing.get()||Thread.currentThread().isInterrupted()){refreshingCatalog.set(false);return;}
+                // Only applying the completed response uses the connection worker. Feed I/O never blocks Connect.
+                worker.submit(() -> {
+                    try {if(!closing.get())applyCatalog(fresh,country);}
+                    finally {refreshingCatalog.set(false);ui(() -> window.setCatalogRefreshing(false,false));}
+                });
+            } catch(InterruptedException|CancellationException ignored) {Thread.currentThread().interrupt();refreshingCatalog.set(false);}
+            catch(Exception unavailable) {
+                refreshingCatalog.set(false);
+                log("Server refresh unavailable. Saved servers and measurements were kept.");
+                ui(() -> {
+                    window.setCatalogRefreshing(false,!servers.isEmpty());
+                    if(servers.isEmpty()&&!connected)window.setConnection("No servers available","Could not download servers. Check your connection and use Refresh.",false);
+                });
+                if(!closing.get())worker.submit(() -> {if(settings.automaticTesting()&&!servers.isEmpty()&&!speedTesting)startSpeedTests(false);});
+            }
+        });
+    }
+
     private void loadServers() throws Exception {
+        applyCatalog(catalog.fetch(),settings.nearbyFirst()?proximity.locate().orElse(null):null);
+    }
+
+    private void applyCatalog(ServerCatalog.Result fresh,String country) {
         cancelSpeedTests();
-        if(!connected)ui(() -> window.setConnection("Loading servers","Getting available encrypted proxy locations…",false));
-        ServerCatalog.Result catalog=new ServerCatalog().fetch();
-        List<Server> fresh=catalog.servers(); servers=fresh;
-        nearbyCountry=settings.nearbyFirst()?proximity.locate().orElse(null):null;
-        if(nearbyCountry!=null)log("Nearby locations tested first · approximate country "+new java.util.Locale("",nearbyCountry).getDisplayCountry(java.util.Locale.ENGLISH));
-        else log("Approximate location unavailable; testing without a distance preference.");
-        performance.replaceAll(Map.of());
-        try {performance.replaceAll(performanceCache.load(fresh));}catch(IOException e){log("Could not read saved latency results. Servers will be checked again.");}
+        nearbyCountry=settings.nearbyFirst()?country:null;
+        showServers(fresh.servers());
+        try {serverCache.save(fresh.servers());}catch(IOException unavailable){log("Could not save the server list. Current servers are still usable.");}
+        ui(() -> {if(!connected)window.setConnection("Disconnected","Choose Connect to find your best connection.",false);});
+        log("Updated · "+fresh.servers().size()+" protected proxy servers");
+        fresh.counts().forEach((source,count) -> log(source+" · "+count+" unique servers"));
+        fresh.warnings().forEach(this::log);
+        if(settings.automaticTesting())startSpeedTests(false);
+    }
+
+    private void showServers(List<Server> available) {
+        servers=List.copyOf(available);
+        try {performance.replaceAll(performanceCache.load(available));}
+        catch(IOException unavailable) {log("Could not read saved measurements. Keeping completed checks from this session.");}
         Map<String,ServerPerformance> saved=performance.snapshot();
         ui(() -> {
-            window.clearPerformance();window.setServers(eligibleServers());
-            for(Server server:fresh) {ServerPerformance p=saved.get(PerformanceCache.serverKey(server));if(p!=null)window.setPerformance(server,p);}
-            if(!connected)window.setConnection("Disconnected","Choose Connect to find your best connection.",false);
+            window.clearPerformance();window.setServers(settings.eligible(available));
+            for(Server server:available) {ServerPerformance value=saved.get(PerformanceCache.serverKey(server));if(value!=null)window.setPerformance(server,value);}
         });
-        log("Updated · "+fresh.size()+" protected proxy servers");
-        catalog.counts().forEach((source,count) -> log(source+" · "+count+" unique servers"));
-        catalog.warnings().forEach(this::log);
-        if(settings.automaticTesting())startSpeedTests(false);
     }
 
     @Override public void installCore() {submit("Installing engine",this::prepareEngine);}
@@ -452,7 +502,7 @@ public final class Main implements AppWindow.Actions {
                 }
                 cleanup();
                 if(plan!=null)UpdateInstaller.start(plan);
-                updateWorker.shutdownNow();speedWorker.shutdownNow();speedWorker.awaitTermination(10,TimeUnit.SECONDS);
+                updateWorker.shutdownNow();catalogWorker.shutdownNow();speedWorker.shutdownNow();speedWorker.awaitTermination(10,TimeUnit.SECONDS);
                 monitor.shutdownNow();releaseLock();SwingUtilities.invokeLater(() -> {window.dispose();System.exit(0);});
             }
             catch(Exception e) {closing.set(false);ui(() -> {window.setBusy(false);window.showError(installUpdate?"Could not restart to update":"Restore proxy settings",safeMessage(e)+"\nThe app remains open so you can retry.");});}

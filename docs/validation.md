@@ -1,3 +1,13 @@
+# Cached server list — 2026-10-16
+
+Moondrop 0.7.1 persists a private local server catalog in addition to speed measurements.
+
+- Full local package check: 141 tests passed, none skipped, including native encrypted-connection tests and eight GUI/controller scenarios under Xvfb.
+- Controller tests hold a feed request open and confirm that saved servers and their measurements are visible, Connect remains enabled, and the connection worker accepts work before the refresh completes.
+- A failed refresh preserves the saved list, saved speeds, and connect controls; a successful refresh replaces the catalog.
+- Cache tests cover profile/credential round trips, POSIX owner-only permissions, protected protocols only, corrupt/oversized files, and preserving the previous snapshot after failed writes.
+- Fresh speed results retain their existing seven-day lifetime. A first refresh is required to populate the server-list cache when upgrading from versions that only saved measurements.
+
 # Usability and Advanced mode — 2026-10-16
 
 Moondrop 0.7.0 was checked locally on Linux with Java 17.

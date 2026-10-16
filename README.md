@@ -10,11 +10,11 @@ A small, independent Java desktop client for protected Shadowsocks, VLESS, Troja
 
 ## Install
 
-Download from the [Moondrop v0.7.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.0), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
+Download from the [Moondrop v0.7.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.1), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
 
 ### Windows installer
 
-1. Under **Assets**, download **Moondrop-0.7.0-Windows-x64.exe** for a Windows x64 PC.
+1. Under **Assets**, download **Moondrop-0.7.1-Windows-x64.exe** for a Windows x64 PC.
 2. Run the installer. It installs for your user account and creates Start menu and desktop shortcuts.
 3. Open **Moondrop** from either shortcut.
 
@@ -23,7 +23,7 @@ This release is unsigned. Windows SmartScreen or Microsoft Defender may warn abo
 ### macOS installer
 
 1. Open Apple menu → **About This Mac** to check your chip.
-2. Download **Moondrop-0.7.0-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.7.0-macOS-x64.dmg** for Intel.
+2. Download **Moondrop-0.7.1-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.7.1-macOS-x64.dmg** for Intel.
 3. Open the DMG and drag **Moondrop.app** into **Applications**. If that folder is not writable by your account, use `~/Applications` instead.
 4. Open Moondrop from Applications, then eject the installer disk.
 
@@ -116,7 +116,7 @@ java -version
 
 #### 2. Download the portable archive
 
-1. Open the [Moondrop v0.7.0 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.0). This is a prerelease.
+1. Open the [Moondrop v0.7.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.1). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 
@@ -218,7 +218,7 @@ These older Shadowmere folder names are retained for compatibility and proxy rec
 
 ## Use
 
-1. Open Moondrop. The app loads servers and tests them in the background, showing checked and working counts. Saved results are reused on later launches.
+1. Open Moondrop. Saved servers and their measured speeds appear immediately. The list refreshes in the background while Connect stays available. On the first launch, a download populates the local server-list cache. Background testing reuses fresh results and resumes missing or expired checks.
 2. Click the large **Connect** button to choose the best tested server, or select a location and click **Connect selected server**. You can connect while background testing continues. **Sort: recommended** only changes list order.
 3. On first connection, the app automatically downloads sing-box 1.14.3 for your OS and CPU from SagerNet's official GitHub release and checks its pinned SHA-256 checksum. **Install engine** in Advanced mode also lets you prepare it ahead of time.
 4. System proxy is enabled by default on macOS and Windows for compatible apps. Change the default in Settings. Linux uses the local proxy: configure apps to use HTTP or SOCKS5 at `127.0.0.1:17890`. Advanced mode reveals the per-connection proxy control.
@@ -275,7 +275,7 @@ mvn package
 ./scripts/package-windows.ps1
 ```
 
-The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.7.0-Windows-x64.exe`, `Moondrop-0.7.0-macOS-arm64.dmg`, and `Moondrop-0.7.0-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
+The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.7.1-Windows-x64.exe`, `Moondrop-0.7.1-macOS-arm64.dmg`, and `Moondrop-0.7.1-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
 
 GitHub Actions builds the three native installers and portable downloads, and tests the native networking engine on Linux, macOS Apple Silicon, macOS Intel, and Windows. The sing-box engine downloads separately on first connection.
 
@@ -298,7 +298,7 @@ Native macOS/Windows system-proxy behavior must be acceptance-tested on those pl
 - Windows: `%LOCALAPPDATA%/Shadowmere`
 - Linux: `~/.local/share/shadowmere-desktop`
 
-Moondrop keeps the original Shadowmere-named data folders for compatibility and recovery across the rename. Only one app instance can own the proxy settings. A durable snapshot is written before system settings change and removed after restoration. An interrupted session is recovered on next launch. A force-killed app can leave system proxy settings enabled until then; reopen Moondrop to restore them. Startup terminates leftover cores only when a private ownership record matches their PID, start time, and executable; session files must belong to this app's data directory. If settings recovery fails, the snapshot is retained and a live listener is kept available while you retry Disconnect. Server passwords exist only in memory and temporary session configuration files, removed on disconnect and after startup recovery. Median latency, reliability, download estimates, their timestamps, and hashed connection identifiers are persisted in `server-performance.json`; passwords are not stored in that cache. No browsing history or server list is persisted.
+Moondrop keeps the original Shadowmere-named data folders for compatibility and recovery across the rename. Only one app instance can own the proxy settings. A durable snapshot is written before system settings change and removed after restoration. An interrupted session is recovered on next launch. A force-killed app can leave system proxy settings enabled until then; reopen Moondrop to restore them. Startup terminates leftover cores only when a private ownership record matches their PID, start time, and executable; session files must belong to this app's data directory. If settings recovery fails, the snapshot is retained and a live listener is kept available while you retry Disconnect. Server profiles, including the credentials needed to reconnect, are saved locally in `server-catalog.json`. On macOS and Linux this file is restricted to its owner; Windows uses the user profile’s permissions. The list appears before network refresh finishes and remains usable if refresh fails. Temporary engine configurations are removed on disconnect and after startup recovery. Median latency, reliability, download estimates, their timestamps, and hashed connection identifiers are persisted in `server-performance.json`; passwords are not stored in that cache. No browsing history is persisted. The profile cache is local and is never included in releases or copied diagnostics.
 
 ## Architecture and credits
 

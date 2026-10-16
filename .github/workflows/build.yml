@@ -36,7 +36,7 @@ jobs:
         run: ./scripts/package.ps1
       - name: Verify connection interface and Advanced mode
         if: runner.os == 'Linux'
-        run: xvfb-run -a mvn -B -Djava.awt.headless=false -Dmoondrop.test.ui=true -Dtest=AppWindowUsabilityTest test
+        run: xvfb-run -a mvn -B -Djava.awt.headless=false -Dmoondrop.test.ui=true -Dtest=AppWindowUsabilityTest,MainCachedStartupTest test
       - name: Check macOS setup Java detection
         if: runner.os == 'macOS'
         run: bash scripts/launchers/installmacos.command --check-java
