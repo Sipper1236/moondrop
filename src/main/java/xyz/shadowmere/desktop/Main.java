@@ -80,7 +80,8 @@ public final class Main implements AppWindow.Actions {
     }
 
     static Path dataDirectory() {
-        String override=System.getProperty("shadowmere.dataDir");
+        String override=System.getenv("MOONDROP_UPDATE_DATA_DIR");
+        if(override==null)override=System.getProperty("shadowmere.dataDir");
         if (override!=null) return Path.of(override).toAbsolutePath();
         String os=System.getProperty("os.name").toLowerCase();
         if(os.startsWith("mac")) return Path.of(System.getProperty("user.home"),"Library","Application Support","Shadowmere");

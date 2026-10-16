@@ -1,6 +1,8 @@
 package xyz.shadowmere.desktop;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 import java.io.*;
 import java.nio.file.*;
@@ -63,15 +65,19 @@ class UpdateInstallerTest {
         Path old=jar("moondrop.jar","0.3.0"),next=jar("next.jar","0.3.1");var expected=plan(old,next,"0.3.1");
         Path file=folder.resolve("update.properties");UpdateInstaller.writePlan(file,expected);assertEquals(expected,UpdateInstaller.readPlan(file));
     }
-    @Test void standaloneHelperInstallsAndRelaunchesWithoutApplicationClasspath() throws Exception {
-        directory=Files.createDirectories(directory.resolve("portable app 雪"));
+    @ParameterizedTest(name="standalone updater in {0}")
+    @ValueSource(strings={"portable app","portable app 雪"})
+    void standaloneHelperInstallsAndRelaunchesWithoutApplicationClasspath(String folder) throws Exception {
+        directory=Files.createDirectories(directory.resolve(folder));
         Path old=jar("moondrop.jar","0.3.0"),next=directory.resolve("new.jar");
         Path source=directory.resolve("fixture/xyz/shadowmere/desktop/Main.java");Files.createDirectories(source.getParent());
         Files.writeString(source,"""
             package xyz.shadowmere.desktop;
             public class Main {
               public static void main(String[] args) throws Exception {
-                java.nio.file.Files.writeString(java.nio.file.Path.of(System.getProperty("shadowmere.dataDir"),"restarted"),"0.3.1");
+                String data=System.getenv("MOONDROP_UPDATE_DATA_DIR");
+                if(data==null)data=System.getProperty("shadowmere.dataDir");
+                java.nio.file.Files.writeString(java.nio.file.Path.of(data,"restarted"),"0.3.1");
               }
             }
             """);

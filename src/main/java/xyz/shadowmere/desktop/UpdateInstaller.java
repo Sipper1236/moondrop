@@ -38,16 +38,20 @@ public final class UpdateInstaller {
     }
 
     public static Process start(Path planFile) throws Exception {
+        planFile=planFile.toAbsolutePath().normalize();
         Plan plan=readPlan(planFile);
         Path helper=planFile.getParent().resolve("installer-helper.jar");
-        return new ProcessBuilder(plan.java().toString(),"-cp",helper.toString(),UpdateInstaller.class.getName(),planFile.toString())
+        // Keep launcher arguments relative: Windows Java launchers can lose
+        // non-ASCII characters in an absolute classpath, even with ProcessBuilder.
+        return new ProcessBuilder(plan.java().toString(),"-cp",helper.getFileName().toString(),UpdateInstaller.class.getName(),planFile.getFileName().toString())
+                .directory(helper.getParent().toFile())
                 .redirectErrorStream(true).redirectOutput(planFile.getParent().resolve("install.log").toFile()).start();
     }
 
     public static void main(String[] args) {
         if(args.length!=1){System.err.println("An update plan is required.");System.exit(1);}
         try {
-            Path file=Path.of(args[0]);Plan plan=readPlan(file);
+            Path file=Path.of(args[0]).toAbsolutePath();Plan plan=readPlan(file);
             waitForExit(plan.pid(),Instant.parse(plan.started()),60);
             try {install(plan);}
             catch(Exception failure) {launch(plan);throw failure;}
@@ -100,9 +104,13 @@ public final class UpdateInstaller {
     }
 
     private static void launch(Plan plan) throws IOException {
-        Process child=new ProcessBuilder(plan.java().toString(),"-Dshadowmere.dataDir="+plan.data(),"-jar",plan.installed().toString())
+        ProcessBuilder command=new ProcessBuilder(plan.java().toString(),"-Dshadowmere.dataDir="+plan.data(),"-jar",plan.installed().getFileName().toString())
                 .directory(plan.installed().getParent().toFile()).redirectErrorStream(true)
-                .redirectOutput(plan.data().resolve("updates/restart.log").toFile()).start();
+                .redirectOutput(plan.data().resolve("updates/restart.log").toFile());
+        // Windows preserves Unicode in the environment even when launcher
+        // command-line conversion loses it. Keep the property for older rollbacks.
+        command.environment().put("MOONDROP_UPDATE_DATA_DIR",plan.data().toString());
+        Process child=command.start();
         try {if(child.waitFor(1500,TimeUnit.MILLISECONDS)&&child.exitValue()!=0)throw new IOException("Moondrop exited while restarting. See updates/restart.log.");}
         catch(InterruptedException interrupted){Thread.currentThread().interrupt();throw new IOException("Restart was interrupted.",interrupted);}
     }
