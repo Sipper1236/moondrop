@@ -27,7 +27,6 @@ public final class AppWindow extends JFrame {
         void connect(Server server, boolean systemProxy);
         void disconnect();
         void installCore();
-        void openDataFolder();
     }
     private static final Color BG = new Color(18,25,33), PANEL = new Color(26,35,45),
             TEXT = new Color(237,240,231), MUTED = new Color(148,164,174), MINT = new Color(157,229,193);
@@ -120,7 +119,6 @@ public final class AppWindow extends JFrame {
         JPanel engine = panel(new BorderLayout(0,10)); engine.setBorder(new EmptyBorder(14,20,14,20)); right.add(engine,BorderLayout.CENTER);
         JPanel engineHeader = new JPanel(new BorderLayout()); engineHeader.setOpaque(false); engineHeader.add(label("ENGINE & ACTIVITY",MUTED,11),BorderLayout.WEST); install.addActionListener(e -> actions.installCore()); engineHeader.add(install,BorderLayout.EAST); engine.add(engineHeader,BorderLayout.NORTH);
         log.setEditable(false); log.setLineWrap(true); log.setWrapStyleWord(true); log.setBackground(PANEL); log.setForeground(MUTED); log.setFont(new Font(Font.MONOSPACED,Font.PLAIN,11)); JScrollPane logs = new JScrollPane(log); logs.setBorder(BorderFactory.createEmptyBorder()); logs.setPreferredSize(new Dimension(300,120)); engine.add(logs,BorderLayout.CENTER);
-        JPanel footer = new JPanel(new BorderLayout()); footer.setOpaque(false); JButton folder = new JButton("App files"); folder.addActionListener(e -> actions.openDataFolder()); footer.add(folder,BorderLayout.EAST); root.add(footer,BorderLayout.SOUTH);
         search.getDocument().addDocumentListener(new DocumentListener(){public void insertUpdate(DocumentEvent e){filter();}public void removeUpdate(DocumentEvent e){filter();}public void changedUpdate(DocumentEvent e){filter();}});
         country.addActionListener(e -> {if(!updatingFilters)filter();}); servers.addListSelectionListener(e -> {if(connected||rebuilding)return; showSelection(servers.getSelectedValue()); updateControls();}); updateControls();
     }

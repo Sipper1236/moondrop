@@ -415,9 +415,5 @@ public final class Main implements AppWindow.Actions {
     private void log(String text) {ui(() -> window.appendLog(text));}
     private void ui(Runnable callback) {if(!closing.get())SwingUtilities.invokeLater(callback);}
     static String safeMessage(Exception e) {String m=e.getMessage();return m==null?"The operation failed. Please try again.":m;}
-    @Override public void openDataFolder() {
-        try {if(Desktop.isDesktopSupported())Desktop.getDesktop().open(data.toFile());else throw new IOException("App files: "+data);}
-        catch(Exception e) {window.showError("App files",data.toString());}
-    }
     @FunctionalInterface private interface Throwing {void run() throws Exception;}
 }
