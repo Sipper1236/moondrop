@@ -1,6 +1,8 @@
 package xyz.moondrop.android;
 
 import android.app.Activity;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -24,11 +26,14 @@ import android.view.Window;
 import android.widget.*;
 import xyz.shadowmere.desktop.Server;
 import java.util.*;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 /** Native, accessible Android interface. Credentials never enter visible labels or diagnostics. */
 public final class MainActivity extends Activity implements AppController.Listener {
     private static final int BG=0xff121921, CARD=0xff1a232d, MINT=0xff9de5c1,
-            TEXT=0xffedf5f1, MUTED=0xff9baeb7, BORDER=0xff30414c, VPN_REQUEST=41;
+            TEXT=0xffedf5f1, MUTED=0xff9baeb7, BORDER=0xff30414c, VPN_REQUEST=41, NOTIFICATION_REQUEST=42;
     private static final Set<String> ISO_COUNTRIES=Set.of(Locale.getISOCountries());
     private AppController controller;
     private AppState state;
@@ -42,6 +47,7 @@ public final class MainActivity extends Activity implements AppController.Listen
     private String chosenCountry="All locations";
     private List<String> countryOptions=List.of();
     private Server pendingServer;
+    private String pendingServerKey;
     private boolean permissionPending, updatingCountries;
 
     @Override public void onCreate(Bundle savedInstanceState) {
@@ -51,7 +57,7 @@ public final class MainActivity extends Activity implements AppController.Listen
         if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
         else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         controller=AppController.get(getApplicationContext());
-        if(savedInstanceState!=null){permissionPending=savedInstanceState.getBoolean("vpn_permission_pending");String key=savedInstanceState.getString("pending_server_key");if(key!=null)for(Server server:controller.state().servers)if(ServerRepository.key(server).equals(key)){pendingServer=server;break;}}
+        if(savedInstanceState!=null){permissionPending=savedInstanceState.getBoolean("vpn_permission_pending");String key=savedInstanceState.getString("pending_server_key");pendingServerKey=key;if(key!=null)for(Server server:controller.state().servers)if(ServerRepository.key(server).equals(key)){pendingServer=server;break;}}
         LinearLayout root=column(); root.setPadding(dp(20),dp(12),dp(20),0); root.setBackgroundColor(BG);
         root.setOnApplyWindowInsetsListener((view,insets)->{
             if(Build.VERSION.SDK_INT>=30){
@@ -96,7 +102,7 @@ public final class MainActivity extends Activity implements AppController.Listen
         adapter=new ServerAdapter();list.setAdapter(adapter);list.setOnItemClickListener((parent,view,pos,id)->showServer(visible.get(pos)));
         root.addView(list,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);root.requestApplyInsets();onState(controller.state());
     }
-    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putBoolean("vpn_permission_pending",permissionPending);if(pendingServer!=null)out.putString("pending_server_key",ServerRepository.key(pendingServer));}
+    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putBoolean("vpn_permission_pending",permissionPending);if(pendingServerKey!=null)out.putString("pending_server_key",pendingServerKey);}
     @Override protected void onStart(){super.onStart();controller.addListener(this);}
     @Override protected void onStop(){controller.removeListener(this);super.onStop();}
     @Override public void onState(AppState next){runOnUiThread(()->render(next));}
@@ -129,13 +135,36 @@ public final class MainActivity extends Activity implements AppController.Listen
     }
     private Measurement measurement(Server server){return state.measurements.get(ServerRepository.key(server));}
     private void requestConnection(Server server){
+        if(permissionPending)return;
         if(state!=null&&(state.connected||state.connecting)){new AlertDialog.Builder(this).setTitle("Switch connection?").setMessage("Disconnect your current connection before choosing another server.").setPositiveButton("Disconnect",(d,w)->controller.disconnect()).setNegativeButton("Keep connection",null).show();return;}
-        pendingServer=server;Intent permission=VpnService.prepare(this);
-        if(permission==null){startPendingConnection();return;}
+        pendingServer=server;pendingServerKey=server==null?null:ServerRepository.key(server);
+        if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED
+                &&!getSharedPreferences("settings",MODE_PRIVATE).getBoolean("notificationAsked",false)){
+            // A denied notification request never blocks VPN consent or connection.
+            getSharedPreferences("settings",MODE_PRIVATE).edit().putBoolean("notificationAsked",true).apply();
+            permissionPending=true;connect.setEnabled(false);
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},NOTIFICATION_REQUEST);return;
+        }
+        prepareVpnPermission();
+    }
+    private void prepareVpnPermission(){
+        Intent permission=VpnService.prepare(this);
+        if(permission==null){permissionPending=false;connect.setEnabled(true);startPendingConnection();return;}
         permissionPending=true;connect.setEnabled(false);startActivityForResult(permission,VPN_REQUEST);
     }
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==VPN_REQUEST){permissionPending=false;connect.setEnabled(true);if(result==RESULT_OK)startPendingConnection();else{pendingServer=null;Toast.makeText(this,"VPN permission is needed to connect",Toast.LENGTH_LONG).show();}}}
-    private void startPendingConnection(){Server server=pendingServer;pendingServer=null;if(server==null)controller.connectBest();else controller.connect(server);}
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] grants){
+        super.onRequestPermissionsResult(request,permissions,grants);
+        if(request==NOTIFICATION_REQUEST)prepareVpnPermission();
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==VPN_REQUEST){permissionPending=false;connect.setEnabled(true);if(result==RESULT_OK)startPendingConnection();else{pendingServer=null;pendingServerKey=null;Toast.makeText(this,"VPN permission is needed to connect",Toast.LENGTH_LONG).show();}}}
+    private void startPendingConnection(){
+        Server server=pendingServer;String key=pendingServerKey;pendingServer=null;pendingServerKey=null;
+        if(server==null&&key!=null){
+            for(Server candidate:controller.state().servers)if(ServerRepository.key(candidate).equals(key)){server=candidate;break;}
+            if(server==null){Toast.makeText(this,"That server is no longer available. Choose another server.",Toast.LENGTH_LONG).show();return;}
+        }
+        if(server==null)controller.connectBest();else controller.connect(server);
+    }
     private void showServer(Server server){
         Measurement m=measurement(server);String body=server.protocolName()+" · "+server.protectionLabel()+"\n\n"+quality(m);
         if(controller.preferences().advancedMode)body+="\n\n"+server.protectionDetail()+"\n"+(m==null?"Not tested yet":m.successes+" of "+m.attempts+" checks succeeded");
@@ -160,6 +189,19 @@ public final class MainActivity extends Activity implements AppController.Listen
             TextView note=label("Protocol changes apply to future connections. Your current connection stays active.",12,MUTED,false);box.addView(note);
             Button diagnostics=new Button(this);diagnostics.setText("Copy diagnostics");diagnostics.setAllCaps(false);diagnostics.setOnClickListener(v->copyDiagnostics());box.addView(diagnostics);
         }
+        Button licenses=new Button(this);licenses.setText("Open-source licenses");licenses.setAllCaps(false);licenses.setOnClickListener(v->showLicenses());box.addView(licenses);
+    }
+    private void showLicenses(){
+        TextView text=label(readLegalAsset("LICENSE")+"\n\n"+readLegalAsset("THIRD_PARTY.md"),12,TEXT,false);
+        text.setTextIsSelectable(true);text.setPadding(dp(22),dp(12),dp(22),dp(12));
+        ScrollView scroll=new ScrollView(this);scroll.addView(text);
+        new AlertDialog.Builder(this).setTitle("Open-source licenses").setView(scroll).setPositiveButton("Done",null).show();
+    }
+    private String readLegalAsset(String name){
+        try(InputStream input=getAssets().open(name);ByteArrayOutputStream output=new ByteArrayOutputStream()){
+            byte[] buffer=new byte[4096];int length;while((length=input.read(buffer))!=-1)output.write(buffer,0,length);
+            return name+"\n\n"+new String(output.toByteArray(),StandardCharsets.UTF_8);
+        }catch(java.io.IOException missing){return name+"\nLicense file is unavailable in this installation.";}
     }
     private void copyDiagnostics(){ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);clipboard.setPrimaryClip(ClipData.newPlainText("Moondrop diagnostics",controller.diagnostics()));Toast.makeText(this,"Diagnostics copied",Toast.LENGTH_SHORT).show();}
     private Button action(String text,View.OnClickListener listener){Button button=new Button(this);button.setText(text);button.setTextSize(12);button.setAllCaps(false);button.setTextColor(MINT);button.setBackgroundColor(Color.TRANSPARENT);button.setPadding(0,0,0,0);button.setOnClickListener(listener);return button;}

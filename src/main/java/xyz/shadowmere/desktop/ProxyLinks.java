@@ -106,6 +106,6 @@ public final class ProxyLinks {
         Map<String,String> values=new HashMap<>();if(text==null||text.isEmpty())return values;
         for(String field:text.split("&",-1)){String[] pair=field.split("=",2);String key=decode(pair[0]);String value=pair.length==2?decode(pair[1]):"";if(key.isEmpty()||key.chars().anyMatch(c->c<32||c==127)||value.chars().anyMatch(c->c<32||c==127)||values.putIfAbsent(key,value)!=null)throw invalid();}return values;
     }
-    private static String decode(String text){return URLDecoder.decode(text.replace("+","%2B"),StandardCharsets.UTF_8);}
+    private static String decode(String text){try{return URLDecoder.decode(text.replace("+","%2B"),"UTF-8");}catch(java.io.UnsupportedEncodingException impossible){throw new AssertionError(impossible);}}
     private static IllegalArgumentException invalid(){return new IllegalArgumentException("Unsupported or invalid secure proxy link");}
 }

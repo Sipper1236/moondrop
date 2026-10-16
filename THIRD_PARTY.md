@@ -2,7 +2,8 @@
 
 - **Eclipse Temurin OpenJDK 21** — bundled only in the Windows and macOS native installers; GPL-2.0 with the Classpath Exception and additional component notices. The portable ZIP/JAR contains no Java runtime. Runtime license and notice files are retained in `runtime/legal` (inside the app bundle on macOS). The runtime's `release` file identifies the exact included version. Corresponding source: https://github.com/adoptium/jdk21u; distribution and build information: https://adoptium.net/temurin/. No local source modifications.
 
-- **sing-box**, SagerNet — GPL-3.0-or-later, https://github.com/SagerNet/sing-box. Downloaded separately at runtime from the official v1.14.3 release. Binary archives are verified against pinned SHA-256 values from that release. Corresponding source: https://github.com/SagerNet/sing-box/tree/v1.14.3. No local modifications.
+- **sing-box**, SagerNet — GPL-3.0-or-later, https://github.com/SagerNet/sing-box. Downloaded separately at runtime from the official v1.14.3 release. Binary archives are verified against pinned SHA-256 values from that release. Corresponding source: https://github.com/SagerNet/sing-box/tree/v1.14.3. The desktop core has no local modifications. Android bundles this core, built from commit `7054cac5124465ffdb145870d7c01885566711b1`, with Moondrop’s GPL bridge; build commands and feature tags are in `android/native/build.sh`. Its Go dependency versions and licenses are available in the pinned upstream source.
+- **AndroidX Test** (Android tests only) and **Android desugar_jdk_libs** — Apache-2.0, https://github.com/android/android-test and https://github.com/google/desugar_jdk_libs.
 - **FlatLaf** — Apache-2.0, https://github.com/JFormDesigner/FlatLaf.
 - **Gson** — Apache-2.0, https://github.com/google/gson.
 - **Apache Commons Compress**, **Commons IO**, **Commons Lang** — Apache-2.0, https://commons.apache.org/.

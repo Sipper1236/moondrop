@@ -94,7 +94,7 @@ public record Server(String id, String host, int port, String method, String pas
         if (link == null || !link.startsWith("ss://")) throw new IllegalArgumentException("Not a Shadowsocks URL");
         String body = link.substring(5).split("#", 2)[0];
         if (body.contains("?")) {
-            String query = URLDecoder.decode(body.substring(body.indexOf('?') + 1), StandardCharsets.UTF_8);
+            String query = decodeUrl(body.substring(body.indexOf('?') + 1));
             for (String parameter : query.split("&")) {
                 if (parameter.split("=", 2)[0].equalsIgnoreCase("plugin"))
                     throw new IllegalArgumentException("Plugin servers are not supported");
@@ -106,7 +106,7 @@ public record Server(String id, String host, int port, String method, String pas
         if (at < 0) throw new IllegalArgumentException("Missing server address");
         String auth = body.substring(0, at);
         if (!auth.contains(":")) auth = decode(auth);
-        else auth = URLDecoder.decode(auth.replace("+", "%2B"), StandardCharsets.UTF_8);
+        else auth = decodeUrl(auth.replace("+", "%2B"));
         int colon = auth.indexOf(':');
         if (colon < 1) throw new IllegalArgumentException("Missing cipher");
         URI address = URI.create("ss://" + body.substring(at + 1));
@@ -114,6 +114,12 @@ public record Server(String id, String host, int port, String method, String pas
         if (host != null && host.startsWith("[")) host = host.substring(1, host.length() - 1);
         return new Server(id, host, address.getPort(), auth.substring(0, colon), auth.substring(colon + 1),
                 country, location, checked, active);
+    }
+
+    // The charset-name overload also works on Android 8–12.
+    private static String decodeUrl(String text) {
+        try {return URLDecoder.decode(text,"UTF-8");}
+        catch(java.io.UnsupportedEncodingException impossible){throw new AssertionError(impossible);}
     }
 
     private static String decode(String text) {

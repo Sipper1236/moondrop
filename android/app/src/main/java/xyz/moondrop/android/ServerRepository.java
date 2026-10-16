@@ -15,6 +15,7 @@ import xyz.shadowmere.desktop.Server;
 /** Private, atomic cache of connection profiles and locally measured results. */
 public final class ServerRepository {
     private static final int MAX_BYTES=8*1024*1024;
+    static final int MAX_CACHE_BYTES=40*1024*1024, MAX_CACHE_ENTRIES=100_000;
     private static final Set<String> CIPHERS=Set.of("2022-blake3-aes-128-gcm","2022-blake3-aes-256-gcm","2022-blake3-chacha20-poly1305","aes-128-gcm","aes-192-gcm","aes-256-gcm","chacha20-ietf-poly1305","xchacha20-ietf-poly1305","aes-128-ctr","aes-192-ctr","aes-256-ctr","aes-128-cfb","aes-192-cfb","aes-256-cfb","rc4-md5","chacha20-ietf","xchacha20");
     private static final Map<Server,String> KEYS=Collections.synchronizedMap(new WeakHashMap<>());
     private final File cache;
@@ -28,19 +29,51 @@ public final class ServerRepository {
         catch(Exception failure) {throw new IllegalArgumentException("Invalid protected server");}
     }
     public synchronized Snapshot load() {
-        try(Reader reader=new InputStreamReader(new FileInputStream(cache),StandardCharsets.UTF_8)) {
-            JsonObject root=JsonParser.parseReader(reader).getAsJsonObject(); List<Server> servers=new ArrayList<>();
-            for(JsonElement row:root.getAsJsonArray("servers"))try {Server server=gson.fromJson(row,Server.class);if(valid(server))servers.add(server);}catch(RuntimeException ignored){}
-            Map<String,Measurement> measurements=new HashMap<>();JsonObject values=root.getAsJsonObject("measurements");
+        if(cache.length()>MAX_CACHE_BYTES)return new Snapshot(List.of(),Map.of());
+        try(InputStream input=new LimitedInputStream(new FileInputStream(cache),MAX_CACHE_BYTES);
+            Reader reader=new InputStreamReader(input,StandardCharsets.UTF_8)) {
+            JsonObject root=JsonParser.parseReader(reader).getAsJsonObject();
+            JsonArray rows=root.getAsJsonArray("servers");JsonObject values=root.getAsJsonObject("measurements");
+            if(rows==null||values==null||rows.size()>MAX_CACHE_ENTRIES||values.size()>MAX_CACHE_ENTRIES)
+                return new Snapshot(List.of(),Map.of());
+            List<Server> servers=new ArrayList<>();
+            for(JsonElement row:rows)try {Server server=gson.fromJson(row,Server.class);if(valid(server))servers.add(server);}catch(RuntimeException ignored){}
+            Map<String,Measurement> measurements=new HashMap<>();
             for(Server server:servers) {String key=key(server);if(values.has(key))try {JsonObject value=values.getAsJsonObject(key);Measurement measurement=new Measurement(value.get("latencyMs").getAsLong(),value.get("checkedAt").getAsLong(),value.get("bytesPerSecond").getAsLong(),value.get("successes").getAsInt(),value.get("attempts").getAsInt()); if(measurement.attempts>0&&measurement.successes>=0&&measurement.successes<=measurement.attempts)measurements.put(key,measurement);}catch(RuntimeException ignored){}}
             return new Snapshot(List.copyOf(servers),Map.copyOf(measurements));
         }catch(Exception ignored) {return new Snapshot(List.of(),Map.of());}
     }
     public synchronized void save(List<Server> servers,Map<String,Measurement> measurements) throws IOException {
-        JsonObject root=new JsonObject();root.add("servers",gson.toJsonTree(servers));root.add("measurements",gson.toJsonTree(measurements));
-        File temp=new File(cache.getParentFile(),cache.getName()+".tmp");
-        try(FileOutputStream output=new FileOutputStream(temp)) {output.write(gson.toJson(root).getBytes(StandardCharsets.UTF_8));output.getFD().sync();}
-        if(!temp.renameTo(cache)) {temp.delete();throw new IOException("Could not save server cache");}
+        save(servers,measurements,MAX_CACHE_BYTES);
+    }
+    synchronized void save(List<Server> servers,Map<String,Measurement> measurements,int byteLimit) throws IOException {
+        if(servers.size()>MAX_CACHE_ENTRIES||measurements.size()>MAX_CACHE_ENTRIES)
+            throw new IOException("Server cache is too large");
+        File temp=new File(cache.getParentFile(),cache.getName()+".tmp");boolean replaced=false;
+        try {
+            try(FileOutputStream file=new FileOutputStream(temp);
+                OutputStream bounded=new LimitedOutputStream(file,byteLimit);
+                com.google.gson.stream.JsonWriter writer=new com.google.gson.stream.JsonWriter(new OutputStreamWriter(bounded,StandardCharsets.UTF_8))) {
+                writer.beginObject();writer.name("servers");gson.toJson(servers,List.class,writer);
+                writer.name("measurements");gson.toJson(measurements,Map.class,writer);writer.endObject();
+                writer.flush();file.getFD().sync();
+            }
+            if(!temp.renameTo(cache))throw new IOException("Could not save server cache");
+            replaced=true;
+        } catch(JsonIOException failure) {throw new IOException("Could not save server cache",failure);}
+        finally {if(!replaced)temp.delete();}
+    }
+    private static final class LimitedInputStream extends FilterInputStream {
+        private long remaining;
+        LimitedInputStream(InputStream input,long limit){super(input);remaining=limit;}
+        @Override public int read() throws IOException {int value=in.read();if(value>=0&&--remaining<0)throw new IOException("Server cache is too large");return value;}
+        @Override public int read(byte[] buffer,int offset,int length) throws IOException {int count=in.read(buffer,offset,(int)Math.min(length,remaining+1));if(count>0&&(remaining-=count)<0)throw new IOException("Server cache is too large");return count;}
+    }
+    private static final class LimitedOutputStream extends FilterOutputStream {
+        private long remaining;
+        LimitedOutputStream(OutputStream output,long limit){super(output);remaining=limit;}
+        @Override public void write(int value) throws IOException {if(--remaining<0)throw new IOException("Server cache is too large");out.write(value);}
+        @Override public void write(byte[] buffer,int offset,int length) throws IOException {if((remaining-=length)<0)throw new IOException("Server cache is too large");out.write(buffer,offset,length);}
     }
     public List<Server> fetch() throws Exception {
         List<Callable<List<Server>>> sources=new ArrayList<>();sources.add(this::shadowmere);
@@ -68,7 +101,7 @@ public final class ServerRepository {
         for(String line:source.split("\\R"))try {
             line=line.strip();if(line.isEmpty()||line.startsWith("#"))continue;
             Server parsed=ProxyLinks.parse("",line,"","","",true);if(!valid(parsed))continue;
-            String country="";int fragment=line.indexOf('#');if(fragment>=0) {String label=URLDecoder.decode(line.substring(fragment+1),StandardCharsets.UTF_8);int[] points=label.codePoints().toArray();for(int i=0;i+1<points.length;i++)if(points[i]>=0x1F1E6&&points[i]<=0x1F1FF&&points[i+1]>=0x1F1E6&&points[i+1]<=0x1F1FF){country=""+(char)('A'+points[i]-0x1F1E6)+(char)('A'+points[i+1]-0x1F1E6);break;}}
+            String country="";int fragment=line.indexOf('#');if(fragment>=0) {String label=decode(line.substring(fragment+1));int[] points=label.codePoints().toArray();for(int i=0;i+1<points.length;i++)if(points[i]>=0x1F1E6&&points[i]<=0x1F1FF&&points[i+1]>=0x1F1E6&&points[i+1]<=0x1F1FF){country=""+(char)('A'+points[i]-0x1F1E6)+(char)('A'+points[i+1]-0x1F1E6);break;}}
             String id=key(parsed);result.putIfAbsent(id,new Server(prefix+id,parsed.host(),parsed.port(),parsed.method(),parsed.password(),country,"","",true,parsed.protocol(),parsed.profileJson()));
         }catch(RuntimeException ignored){}return List.copyOf(result.values());
     }
@@ -83,6 +116,10 @@ public final class ServerRepository {
     static String download(String address) throws IOException {
         HttpsURLConnection connection=(HttpsURLConnection)new URL(address).openConnection();connection.setConnectTimeout(8000);connection.setReadTimeout(15000);connection.setRequestProperty("User-Agent","Moondrop-Android");connection.setInstanceFollowRedirects(false);
         try {if(connection.getResponseCode()!=200)throw new IOException("Server source unavailable");try(InputStream input=connection.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buffer=new byte[8192];int count;while((count=input.read(buffer))!=-1){if(Thread.currentThread().isInterrupted())throw new java.io.InterruptedIOException();if(out.size()+count>MAX_BYTES)throw new IOException("Server source too large");out.write(buffer,0,count);}return out.toString(StandardCharsets.UTF_8.name());}}finally {connection.disconnect();}
+    }
+    private static String decode(String text) {
+        try {return URLDecoder.decode(text,"UTF-8");}
+        catch(UnsupportedEncodingException impossible) {throw new AssertionError(impossible);}
     }
     private static String text(JsonObject value,String key){return value.has(key)&&!value.get(key).isJsonNull()?value.get(key).getAsString():"";}
 }

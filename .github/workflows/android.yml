@@ -35,7 +35,13 @@ jobs:
         run: |
           sdkmanager 'ndk;28.0.13004108' 'platforms;android-26' 'platforms;android-36' 'build-tools;35.0.0'
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        id: native-aar
+        with:
+          path: android/app/libs/moondrop-engine.aar
+          key: android-aar-${{ runner.os }}-${{ hashFiles('android/native/**') }}
       - name: Build protected networking engine from source
+        if: steps.native-aar.outputs.cache-hit != 'true'
         run: bash android/native/build.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -61,7 +67,26 @@ jobs:
       - name: Build and check APK
         working-directory: android
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleRelease
+      - name: Prepare controlled VPN routing fixture
+        run: |
+          curl --fail --location --retry 3 -o /tmp/sing-box.tar.gz https://github.com/SagerNet/sing-box/releases/download/v1.14.3/sing-box-1.14.3-linux-amd64.tar.gz
+          echo 'e2bdf179c15a3652955dc44867e33ca0965c9c9b91b34267dcc5a5d639a5feee  /tmp/sing-box.tar.gz' | sha256sum --check
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test native traffic, cached UI, and actual VPN routing
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: bash android/scripts/test-device.sh /tmp/sing-box-1.14.3-linux-amd64/sing-box
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Moondrop-Android-APK
           path: |

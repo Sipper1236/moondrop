@@ -8,6 +8,10 @@ A small, independent Java desktop client for protected Shadowsocks, VLESS, Troja
 
 *Interface preview with example servers and measurements.*
 
+## Android
+
+[Download Moondrop for Android](https://github.com/Sipper1236/moondrop/releases/tag/android-v0.1.0) (Android 8.0+). Native Java interface, encrypted VPN, cached servers, Quick Connect, country flags, and protocol settings. No Java installation is needed on your phone. See [Android installation and build instructions](android/README.md).
+
 ## Install
 
 Download from the [Moondrop v0.7.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.1), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**

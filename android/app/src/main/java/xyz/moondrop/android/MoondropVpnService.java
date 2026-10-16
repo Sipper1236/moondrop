@@ -64,7 +64,7 @@ public final class MoondropVpnService extends VpnService {
                 new Intent(this, MoondropVpnService.class).setAction(ACTION_DISCONNECT),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(R.drawable.ic_moondrop)
+                .setSmallIcon(R.drawable.ic_notification)
                 .setContentTitle("Moondrop").setContentText(text).setContentIntent(open)
                 .setOnlyAlertOnce(true).setOngoing(true).setCategory(Notification.CATEGORY_SERVICE)
                 .addAction(new Notification.Action.Builder(null, "Disconnect", disconnect).build())
