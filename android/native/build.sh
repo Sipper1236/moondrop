@@ -22,7 +22,9 @@ export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/28.0.13004108}"
 export GOBIN="$work_dir/bin"
 mkdir -p "$GOBIN" "$source_dir/moondropnative"
 cp "$script_dir/bridge.go" "$source_dir/moondropnative/bridge.go"
+cp "$script_dir/bridge_test.go" "$source_dir/moondropnative/bridge_test.go"
 cd "$source_dir"
+go test -ldflags=-checklinkname=0 -tags=with_gvisor,with_quic,with_utls,badlinkname,tfogo_checklinkname0 ./moondropnative
 go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.12
 go install github.com/sagernet/gomobile/cmd/gobind@v0.1.12
 export PATH="$GOBIN:$PATH"

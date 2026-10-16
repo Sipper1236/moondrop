@@ -21,6 +21,7 @@ type AndroidPlatform interface {
 	DefaultInterfaceName() string
 	DefaultInterfaceIndex() int32
 	DefaultInterfaceMetered() bool
+	Lookup(domain, network string) (string, error)
 }
 
 var state struct {
@@ -94,8 +95,18 @@ func (p *platform) update(name string, index int32, metered bool) {
 		listener.UpdateDefaultInterface(name, index, metered, false)
 	}
 }
-func (p *platform) LocalDNSTransport() libbox.LocalDNSTransport { return nil }
-func (p *platform) UsePlatformAutoDetectInterfaceControl() bool { return true }
+func (p *platform) LocalDNSTransport() libbox.LocalDNSTransport { return p }
+func (p *platform) Raw() bool                                   { return false }
+func (p *platform) Lookup(ctx *libbox.ExchangeContext, network, domain string) error {
+	addresses, err := p.android.Lookup(domain, network)
+	if err != nil {
+		return err
+	}
+	ctx.Success(addresses)
+	return nil
+}
+func (p *platform) Exchange(*libbox.ExchangeContext, []byte) error { return errors.ErrUnsupported }
+func (p *platform) UsePlatformAutoDetectInterfaceControl() bool    { return true }
 func (p *platform) AutoDetectInterfaceControl(fd int32) error {
 	if !p.android.Protect(fd) {
 		return errors.New("could not protect outbound socket from VPN routing")
