@@ -30,6 +30,7 @@ jobs:
           key: android-libbox-v1.14.3-${{ hashFiles('android/native/bridge.go', 'android/native/build.sh') }}
           restore-keys: android-libbox-v1.14.3-
       - uses: android-actions/setup-android@v3
+        with: { packages: 'platform-tools' }
       - name: Install pinned Android NDK
         run: |
           sdkmanager 'ndk;28.0.13004108' 'platforms;android-26' 'platforms;android-36' 'build-tools;35.0.0'
@@ -54,6 +55,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: Moondrop-Android-engine, path: android/app/libs }
       - uses: android-actions/setup-android@v3
+        with: { packages: 'platform-tools' }
       - name: Install SDK platform
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
       - name: Build and check APK

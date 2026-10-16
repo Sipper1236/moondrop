@@ -15,12 +15,7 @@ android {
         targetCompatibility JavaVersion.VERSION_17
         coreLibraryDesugaringEnabled true
     }
-    sourceSets {
-        main.java {
-            srcDirs 'src/main/java', '../../src/main/java'
-            include 'xyz/moondrop/android/**', 'xyz/shadowmere/desktop/Server.java', 'xyz/shadowmere/desktop/ProxyLinks.java'
-        }
-    }
+    sourceSets { main.java.srcDir layout.buildDirectory.dir('generated/shared/java') }
     buildTypes {
         release { minifyEnabled false; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' }
     }
@@ -37,3 +32,12 @@ dependencies {
     androidTestImplementation 'androidx.test:rules:1.6.1'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
 }
+
+// Copy only platform-independent models; Swing and desktop HTTP stay out.
+def sharedModels = tasks.register('syncSharedModels', Sync) {
+    from('../../src/main/java') {
+        include 'xyz/shadowmere/desktop/Server.java', 'xyz/shadowmere/desktop/ProxyLinks.java'
+    }
+    into layout.buildDirectory.dir('generated/shared/java')
+}
+tasks.named('preBuild').configure { dependsOn sharedModels }

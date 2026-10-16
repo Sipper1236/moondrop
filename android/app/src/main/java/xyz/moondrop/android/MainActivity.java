@@ -11,6 +11,10 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.VpnService;
 import android.os.Bundle;
+import android.os.Build;
+import android.graphics.Insets;
+import android.view.WindowInsets;
+import android.view.WindowManager;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -30,7 +34,7 @@ public final class MainActivity extends Activity implements AppController.Listen
     private AppState state;
     private TextView status, detail, progress, count, error;
     private Button connect;
-    private LinearLayout errorActions;
+    private LinearLayout errorActions, headerBar, connectionCard;
     private EditText search;
     private Spinner country, sort;
     private final ArrayList<Server> visible=new ArrayList<>();
@@ -43,20 +47,30 @@ public final class MainActivity extends Activity implements AppController.Listen
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(BG); getWindow().setNavigationBarColor(BG);
-        getWindow().getDecorView().setSystemUiVisibility(0);
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
+        else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         controller=AppController.get(getApplicationContext());
         if(savedInstanceState!=null){permissionPending=savedInstanceState.getBoolean("vpn_permission_pending");String key=savedInstanceState.getString("pending_server_key");if(key!=null)for(Server server:controller.state().servers)if(ServerRepository.key(server).equals(key)){pendingServer=server;break;}}
         LinearLayout root=column(); root.setPadding(dp(20),dp(12),dp(20),0); root.setBackgroundColor(BG);
         root.setOnApplyWindowInsetsListener((view,insets)->{
-            view.setPadding(dp(20),dp(12)+insets.getSystemWindowInsetTop(),dp(20),insets.getSystemWindowInsetBottom());
-            return insets.consumeSystemWindowInsets();
+            if(Build.VERSION.SDK_INT>=30){
+                Insets safe=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());
+                view.setPadding(dp(20)+safe.left,dp(12)+safe.top,dp(20)+safe.right,safe.bottom);
+            }else{
+                view.setPadding(dp(20)+insets.getSystemWindowInsetLeft(),dp(12)+insets.getSystemWindowInsetTop(),dp(20)+insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());
+            }
+            boolean keyboard=Build.VERSION.SDK_INT>=30?insets.isVisible(WindowInsets.Type.ime()):insets.getSystemWindowInsetBottom()>dp(120);
+            if(headerBar!=null)headerBar.setVisibility(keyboard?View.GONE:View.VISIBLE);
+            if(connectionCard!=null)connectionCard.setVisibility(keyboard?View.GONE:View.VISIBLE);
+            return insets;
         });
-        LinearLayout header=row();
+        LinearLayout header=headerBar=row();
         LinearLayout brand=column(); brand.addView(label("MOONDROP",23,TEXT,true)); brand.addView(label("by rayyan",12,MUTED,false));
         header.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
         header.addView(icon("↻","Refresh servers",v->controller.refresh()));
         header.addView(icon("⚙","Settings",v->showSettings())); root.addView(header);
-        LinearLayout hero=column(); hero.setPadding(dp(18),dp(18),dp(18),dp(18)); hero.setBackground(shape(CARD,22));
+        LinearLayout hero=connectionCard=column(); hero.setPadding(dp(18),dp(18),dp(18),dp(18)); hero.setBackground(shape(CARD,22));
         status=label("Ready to connect",21,TEXT,true); detail=label("Automatically chooses your best tested server",13,MUTED,false);
         hero.addView(status); margin(detail,0,7,0,18); hero.addView(detail);
         connect=new Button(this); connect.setAllCaps(false); connect.setTextSize(18); connect.setTypeface(null,Typeface.BOLD);
