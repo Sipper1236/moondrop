@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- The separate test APK UID sends real traffic through the VPN. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <application>
+        <activity android:name="xyz.moondrop.android.RoutingProbeActivity" android:exported="true" />
+    </application>
 </manifest>

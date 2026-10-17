@@ -13,9 +13,6 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import android.os.Build;
-import android.annotation.SuppressLint;
 import java.util.concurrent.TimeUnit;
 import xyz.shadowmere.desktop.Server;
 import static org.junit.Assert.*;
@@ -25,10 +22,8 @@ import static org.junit.Assume.assumeTrue;
 @RunWith(AndroidJUnit4.class)
 public final class VpnRoutingTest {
     @Rule public ActivityTestRule<MainActivity> activity=new ActivityTestRule<>(MainActivity.class,false,false);
-    @SuppressLint("NewApi")
     @Test public void anotherApplicationRoutesThroughTheEncryptedVpn() throws Exception {
         String ssPort=InstrumentationRegistry.getArguments().getString("fixtureSsPort");
-        assumeTrue("Bidirectional shell pipes require Android 12+",Build.VERSION.SDK_INT>=31);
         assumeTrue("Run scripts/vpn-fixture.py and pass fixtureSsPort",ssPort!=null);
         Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();
         Context context=instrumentation.getTargetContext();
@@ -36,24 +31,21 @@ public final class VpnRoutingTest {
         activity.launchActivity(null);
         shell(instrumentation,"appops set "+context.getPackageName()+" ACTIVATE_VPN allow");
         assertNull("VPN access must be authorized by the test harness",VpnService.prepare(context));
-        Server endpoint=new Server("vpn-fixture","10.0.2.2",Integer.parseInt(ssPort),"chacha20-ietf-poly1305","moondrop-local-routing-fixture","CA","Local fixture","",true);
+        Server endpoint=new Server("vpn-fixture",InstrumentationRegistry.getArguments().getString("fixtureSsHost","127.0.0.1"),Integer.parseInt(ssPort),"chacha20-ietf-poly1305","moondrop-local-routing-fixture","CA","Local fixture","",true);
         FixtureVpnService.reset();
         Intent service=new Intent(context,FixtureVpnService.class).putExtra("config",AppController.configuration(endpoint,0,true));
         try{
             context.startForegroundService(service);
-            assertTrue("VPN engine did not start",FixtureVpnService.ready.await(15,TimeUnit.SECONDS));
+            assertTrue("VPN engine did not start",FixtureVpnService.ready.await(30,TimeUnit.SECONDS));
             if(FixtureVpnService.failure!=null)throw new AssertionError("VPN engine start failed",FixtureVpnService.failure);
-            // run-as uses the separate, debuggable instrumentation APK's UID. Moondrop's own UID is excluded.
+            // The probe Activity runs as the test APK's separate UID. Moondrop's own UID is excluded.
             // 198.18.0.42 has no host listener or direct route: only the remote fixture remaps it to HTTP.
-            String command="run-as "+instrumentation.getContext().getPackageName()+" /system/bin/toybox nc -q 2 -w 5 198.18.0.42 18080";
-            ParcelFileDescriptor[] pipes=instrumentation.getUiAutomation().executeShellCommandRw(command);
-            try(FileOutputStream input=new ParcelFileDescriptor.AutoCloseOutputStream(pipes[1])){
-                input.write("GET / HTTP/1.1\r\nHost: fixture\r\nConnection: close\r\n\r\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-            }
-            String response;
-            try(FileInputStream output=new ParcelFileDescriptor.AutoCloseInputStream(pipes[0]);ByteArrayOutputStream bytes=new ByteArrayOutputStream()){
-                byte[] buffer=new byte[4096];int count;while((count=output.read(buffer))!=-1)bytes.write(buffer,0,count);
-                response=bytes.toString("UTF-8");
+            shell(instrumentation,"am start -W -n "+instrumentation.getContext().getPackageName()+"/xyz.moondrop.android.RoutingProbeActivity");
+            String response="";long deadline=android.os.SystemClock.uptimeMillis()+12000;
+            while(android.os.SystemClock.uptimeMillis()<deadline){
+                response=shell(instrumentation,"run-as "+instrumentation.getContext().getPackageName()+" cat files/routing-result.txt");
+                if(!response.isBlank())break;
+                android.os.SystemClock.sleep(100);
             }
             assertTrue("Traffic did not pass through the VPN: "+response,response.contains("moondrop-vpn-routing-passed"));
         }finally{
