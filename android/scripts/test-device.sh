@@ -14,6 +14,7 @@ for attempt in {1..100}; do
 done
 port="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ssPort"])' "$fixture_dir/ports.json")"
 adb reverse "tcp:$port" "tcp:$port"
+adb shell svc power stayon true
 adb shell input keyevent 224
 adb shell wm dismiss-keyguard
 cd "$repo_dir/android"
