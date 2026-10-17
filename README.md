@@ -2,7 +2,7 @@
 
 by rayyan
 
-A small, independent Java desktop client for protected Shadowsocks, VLESS, Trojan, Hysteria2, and TUIC connections from [Shadowmere](https://shadowmere.xyz/), [GFP](https://github.com/gfpcom/free-proxy-list), [V2rayCollector](https://github.com/MhdiTaheri/V2rayCollector), and [Morpheus](https://github.com/morpheusadam/v2ray-config). Dark navy, warm text, mint accents, country flags, one list, one connection. Not an official Shadowmere release.
+A small, independent Java desktop client for protected Shadowsocks, VLESS, Trojan, Hysteria2, and TUIC connections from [Shadowmere](https://shadowmere.xyz/), [GFP](https://github.com/gfpcom/free-proxy-list), [V2rayCollector](https://github.com/MhdiTaheri/V2rayCollector), [Morpheus](https://github.com/morpheusadam/v2ray-config), [V2RayAggregator](https://github.com/mahdibland/V2RayAggregator), and [Epodonios](https://github.com/Epodonios/v2ray-configs). Dark navy, warm text, mint accents, country flags, one list, one connection. Not an official Shadowmere release.
 
 ![Moondrop in simple mode with country flags and Connect](docs/preview.png)
 
@@ -10,15 +10,15 @@ A small, independent Java desktop client for protected Shadowsocks, VLESS, Troja
 
 ## Android
 
-[Download Moondrop for Android](https://github.com/Sipper1236/moondrop/releases/tag/android-v0.1.0) (Android 8.0+). Native Java interface, encrypted VPN, cached servers, Quick Connect, country flags, and protocol settings. No Java installation is needed on your phone. See [Android installation and build instructions](android/README.md).
+[Download Moondrop for Android](https://github.com/Sipper1236/moondrop/releases/tag/android-v0.1.1) (Android 8.0+). Native Java interface, encrypted VPN, cached servers, Quick Connect, country flags, and protocol settings. No Java installation is needed on your phone. See [Android installation and build instructions](android/README.md).
 
 ## Install
 
-Download from the [Moondrop v0.7.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.1), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
+Download from the [Moondrop v0.7.2 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.2), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
 
 ### Windows installer
 
-1. Under **Assets**, download **Moondrop-0.7.1-Windows-x64.exe** for a Windows x64 PC.
+1. Under **Assets**, download **Moondrop-0.7.2-Windows-x64.exe** for a Windows x64 PC.
 2. Run the installer. It installs for your user account and creates Start menu and desktop shortcuts.
 3. Open **Moondrop** from either shortcut.
 
@@ -27,7 +27,7 @@ This release is unsigned. Windows SmartScreen or Microsoft Defender may warn abo
 ### macOS installer
 
 1. Open Apple menu → **About This Mac** to check your chip.
-2. Download **Moondrop-0.7.1-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.7.1-macOS-x64.dmg** for Intel.
+2. Download **Moondrop-0.7.2-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.7.2-macOS-x64.dmg** for Intel.
 3. Open the DMG and drag **Moondrop.app** into **Applications**. If that folder is not writable by your account, use `~/Applications` instead.
 4. Open Moondrop from Applications, then eject the installer disk.
 
@@ -120,7 +120,7 @@ java -version
 
 #### 2. Download the portable archive
 
-1. Open the [Moondrop v0.7.1 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.1). This is a prerelease.
+1. Open the [Moondrop v0.7.2 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.2). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 
@@ -161,7 +161,7 @@ For a portable launch without installing a shortcut, run `chmod +x launch-linux.
 
 New and expired checks run **nearby first**: your approximate country comes from a direct HTTPS lookup at [IPWHOIS](https://ipwhois.io/documentation), cached locally for 24 hours. Only the country code and lookup time are saved. Moondrop compares reported server countries using country-center distances; unknown locations come last. If lookup fails, Moondrop reuses the saved country; without one, testing continues without a distance preference. A VPN or upstream proxy can affect the detected country. To override it, launch with an ISO country code, for example `java -Dmoondrop.country=CA -jar moondrop.jar`. This changes test order; measured reliability, median HTTPS latency, and a bounded download estimate decide the best tested connection.
 
-Moondrop imports protected proxy connections from [Shadowmere](https://shadowmere.xyz/), [GFP](https://github.com/gfpcom/free-proxy-list), [V2rayCollector](https://github.com/MhdiTaheri/V2rayCollector), and [Morpheus](https://github.com/morpheusadam/v2ray-config). Supported profiles are **encrypted Shadowsocks**, **VLESS with verified TLS or REALITY**, **Trojan with TLS**, **Hysteria2 with TLS**, and **TUIC with TLS**. Plain HTTP/SOCKS proxies, plaintext VLESS, profiles disabling TLS verification, VMess, and unsupported plugins, transports, or ciphers are excluded.
+Moondrop imports protected proxy connections from [Shadowmere](https://shadowmere.xyz/), [GFP](https://github.com/gfpcom/free-proxy-list), [V2rayCollector](https://github.com/MhdiTaheri/V2rayCollector), [Morpheus](https://github.com/morpheusadam/v2ray-config), [V2RayAggregator](https://github.com/mahdibland/V2RayAggregator), and [Epodonios](https://github.com/Epodonios/v2ray-configs). Supported profiles are **encrypted Shadowsocks**, **VLESS with verified TLS or REALITY**, **Trojan with TLS**, **Hysteria2 with TLS**, and **TUIC with TLS**. Plain HTTP/SOCKS proxies, plaintext VLESS, profiles disabling TLS verification, VMess, and unsupported plugins, transports, or ciphers are excluded.
 
 The app automatically loads Shadowmere's Shadowsocks feed; GFP's Shadowsocks, Hysteria2, and TUIC feeds; V2rayCollector's Shadowsocks and mixed feeds filtered to supported protected profiles; and Morpheus's Shadowsocks, VLESS, Trojan, Hysteria2, and TUIC bundles. Identical connections are deduplicated across sources. Rows show the source; search for `GFP`, `V2rayCollector`, `Morpheus`, or `Shadowmere` to narrow the list. If one source fails, the others still load. Country flags reflect source labels when provided; unknown locations remain unknown.
 
@@ -279,7 +279,7 @@ mvn package
 ./scripts/package-windows.ps1
 ```
 
-The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.7.1-Windows-x64.exe`, `Moondrop-0.7.1-macOS-arm64.dmg`, and `Moondrop-0.7.1-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
+The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.7.2-Windows-x64.exe`, `Moondrop-0.7.2-macOS-arm64.dmg`, and `Moondrop-0.7.2-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
 
 GitHub Actions builds the three native installers and portable downloads, and tests the native networking engine on Linux, macOS Apple Silicon, macOS Intel, and Windows. The sing-box engine downloads separately on first connection.
 

@@ -24,3 +24,6 @@ The shaded JAR includes dependency license/notice files under META-INF. Moondrop
 - **Cloudflare Speed Test** — https://speed.cloudflare.com/. Its HTTPS download endpoint (`/__down?bytes=1048576`) is requested at runtime for bounded connection-speed estimates. No Cloudflare SDK or source code is copied or bundled.
 
 The question-mark fallback flag (`src/main/resources/flags/xx.svg`) is an original Moondrop asset.
+
+- **V2RayAggregator**, mahdibland — public subscriptions fetched at runtime from https://github.com/mahdibland/V2RayAggregator. No upstream code or server lists bundled.
+- **Epodonios/v2ray-configs** — public subscriptions fetched at runtime from https://github.com/Epodonios/v2ray-configs. No upstream code or server lists bundled.

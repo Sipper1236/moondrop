@@ -83,6 +83,8 @@ public final class ServerRepository {
         for(String protocol:List.of("hy2","tuic"))sources.add(()->parseFeed(download("https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/"+protocol+".txt"),"gfp:"));
         sources.add(()->parseFeed(download("https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/mix"),"collector:"));
         for(String protocol:List.of("vless","trojan","hysteria2","tuic"))sources.add(()->parseFeed(download("https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/"+protocol+".txt"),"morpheus:"));
+        sources.add(()->parseFeed(download("https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt"),"aggregator:"));
+        sources.add(()->parseFeed(download("https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt"),"epodonios:"));
         ExecutorService workers=Executors.newFixedThreadPool(6);
         try {Map<String,Server> unique=new LinkedHashMap<>();for(Future<List<Server>> result:workers.invokeAll(sources,45,TimeUnit.SECONDS))try {for(Server server:result.get())unique.putIfAbsent(key(server),server);}catch(ExecutionException|CancellationException ignored){} if(unique.isEmpty())throw new IOException("Server sources are unavailable. Your saved servers are still available.");return List.copyOf(unique.values());}
         finally {workers.shutdownNow();}

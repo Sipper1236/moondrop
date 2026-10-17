@@ -30,6 +30,8 @@ public final class ServerCatalog {
             java.net.URI endpoint=java.net.URI.create("https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/"+protocol+".txt");
             feeds.add(new Source("Morpheus "+protocol,()->ShadowsocksFeed.protectedFeed(endpoint,"morpheus:").fetch()));
         }
+        feeds.add(new Source("V2RayAggregator",()->ShadowsocksFeed.protectedFeed(java.net.URI.create("https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt"),"aggregator:").fetch()));
+        feeds.add(new Source("Epodonios",()->ShadowsocksFeed.protectedFeed(java.net.URI.create("https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt"),"epodonios:").fetch()));
         return feeds;
     }
     ServerCatalog(List<Source> sources, Duration timeout) {

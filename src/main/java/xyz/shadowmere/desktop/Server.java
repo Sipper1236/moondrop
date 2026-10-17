@@ -35,6 +35,8 @@ public record Server(String id, String host, int port, String method, String pas
         if (id != null && id.startsWith("gfp:")) return "GFP";
         if (id != null && id.startsWith("collector:")) return "V2rayCollector";
         if (id != null && id.startsWith("morpheus:")) return "Morpheus";
+        if (id != null && id.startsWith("aggregator:")) return "V2RayAggregator";
+        if (id != null && id.startsWith("epodonios:")) return "Epodonios";
         return "Shadowmere";
     }
     public boolean usesUdpTransport() {return protocol.equals("hysteria2")||protocol.equals("tuic");}

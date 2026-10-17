@@ -6,7 +6,7 @@ The VPN service uses sing-box 1.14.3, built from [pinned upstream source](https:
 
 ## Use
 
-1. Install **Moondrop-0.1.0-Android.apk** from the [Android release](https://github.com/Sipper1236/moondrop/releases/tag/android-v0.1.0) on your phone. Allow installation from your browser or file manager if Android asks.
+1. Install **Moondrop-0.1.1-Android.apk** from the [Android release](https://github.com/Sipper1236/moondrop/releases/tag/android-v0.1.1) on your phone. Allow installation from your browser or file manager if Android asks.
 2. Open Moondrop. Saved servers appear first; feeds refresh in the background.
 3. Tap **Connect** and approve Android’s VPN connection request. The button becomes **Cancel** during selection and **Disconnect** once connected.
 4. Select a country/server for a specific location. Settings contains optional **Advanced mode** and protocol switches.
