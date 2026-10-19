@@ -22,7 +22,7 @@ jobs:
         with: { distribution: temurin, java-version: '17' }
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with: { go-version: '1.26.9', cache: false }
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/pkg/mod
@@ -34,7 +34,7 @@ jobs:
         run: |
           sdkmanager 'ndk;28.0.13004108' 'platforms;android-26' 'platforms;android-36' 'build-tools;35.0.0'
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: native-aar
         with:
           path: |
