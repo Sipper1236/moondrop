@@ -72,6 +72,40 @@ try{
   if([MoondropWfp]::Blocked()){throw 'Refusing to replace an existing Moondrop policy'}
   function Can-Tcp($Address,$Port){$s=New-Object Net.Sockets.TcpClient;try{$task=$s.ConnectAsync($Address,$Port);if(-not $task.Wait(3000)){return $false};return $s.Connected}catch{return $false}finally{$s.Dispose()}}
   if(-not (Can-Tcp '1.1.1.1' 443)){throw 'Runner lacks public network baseline'}
+  $captureRoot=if($env:MOONDROP_WINDOWS_CAPTURE_DIR){$env:MOONDROP_WINDOWS_CAPTURE_DIR}else{Join-Path $temp 'nic-captures'}
+  [void][IO.Directory]::CreateDirectory($captureRoot)
+  $route=Get-NetRoute -DestinationPrefix '0.0.0.0/0' |Sort-Object RouteMetric|Select-Object -First 1
+  $resolver=(Get-DnsClientServerAddress -InterfaceIndex $route.InterfaceIndex -AddressFamily IPv4).ServerAddresses |Where-Object {$_ -notmatch '^127\.'}|Select-Object -First 1
+  if(-not $resolver){throw 'No configured IPv4 DNS resolver baseline available'}
+  function Capture-Dns($Phase,$Id){
+   $etl=Join-Path $captureRoot ($Phase+'.etl');$pcap=Join-Path $captureRoot ($Phase+'.pcapng')
+   & "$env:WINDIR\System32\pktmon.exe" filter remove |Out-Null
+   & "$env:WINDIR\System32\pktmon.exe" filter add MoondropDns -i $resolver -t UDP -p 53 |Out-Null
+   if($LASTEXITCODE -ne 0){throw 'Cannot configure NIC DNS capture'}
+   & "$env:WINDIR\System32\pktmon.exe" start --capture --comp nics --pkt-size 0 --file-name $etl |Out-Null
+   if($LASTEXITCODE -ne 0){throw 'Cannot start NIC DNS capture'}
+   $sent=-1;$reply=$false;$socketError=''
+   try{
+    $udp=New-Object Net.Sockets.UdpClient
+    try{
+     $udp.Client.ReceiveTimeout=3000
+     [byte[]]$query=@([byte]($Id -shr 8),[byte]($Id -band 255),1,0,0,1,0,0,0,0,0,0,7,101,120,97,109,112,108,101,3,99,111,109,0,0,1,0,1)
+     try{$udp.Connect($resolver,53);$sent=$udp.Send($query,$query.Length);$remote=New-Object Net.IPEndPoint([Net.IPAddress]::Any,0);$answer=$udp.Receive([ref]$remote);$reply=($answer.Length -ge 12 -and $answer[0] -eq $query[0] -and $answer[1] -eq $query[1] -and ($answer[2] -band 128) -ne 0)}catch [Net.Sockets.SocketException]{$socketError=$_.Exception.SocketErrorCode.ToString()}
+    }finally{$udp.Dispose()}
+    Start-Sleep -Milliseconds 500
+   }finally{& "$env:WINDIR\System32\pktmon.exe" stop |Out-Null}
+   & "$env:WINDIR\System32\pktmon.exe" etl2pcap $etl --out $pcap |Out-Null
+   if($LASTEXITCODE -ne 0){throw 'Cannot convert NIC DNS capture'}
+   $analysis=& python (Join-Path $PSScriptRoot 'inspect-windows-udp-capture.py') $pcap $resolver $Id
+   if($LASTEXITCODE -ne 0){throw 'NIC DNS capture could not be inspected safely'}
+   $evidence=$analysis|ConvertFrom-Json
+   $result=@{phase=$Phase;sent=$sent;reply=$reply;socketError=$socketError;nicQueryFrames=$evidence.matching_dns_query_frames;nicPackets=$evidence.packets;dnsId=$Id;resolver=$resolver}
+   $result|ConvertTo-Json -Compress|Tee-Object -FilePath (Join-Path $captureRoot ($Phase+'.json'))|Write-Host
+   return $result
+  }
+  $baselineId=Get-Random -Minimum 1024 -Maximum 30000
+  $baseline=Capture-Dns 'baseline' $baselineId
+  if(-not $baseline.reply -or $baseline.nicQueryFrames -lt 1){throw 'DNS baseline needs valid resolver response and independently observed NIC query'}
   $recovery=$null
   try{
    # Independent timed recovery is armed BEFORE filters, so even an assertion,
@@ -89,7 +123,10 @@ try{
    if($LASTEXITCODE -ne 0 -or -not [MoondropWfp]::Blocked()){throw 'Strict policy did not survive policy process exit'}
    if(Can-Tcp '1.1.1.1' 443){throw 'IPv4 traffic escaped strict policy'}
    if(Can-Tcp '2606:4700:4700::1111' 443){throw 'IPv6 traffic escaped strict policy'}
-   $udp=New-Object Net.Sockets.UdpClient;try{$denied=$false;try{$udp.Connect('8.8.8.8',53);[void]$udp.Send([byte[]]@(0,1,0,0),4)}catch [Net.Sockets.SocketException]{$denied=$true};if(-not $denied){throw 'DNS UDP traffic escaped strict policy'}}finally{$udp.Dispose()}
+   # Winsock send completion is not a delivery acknowledgement. A fresh socket
+   # and unique valid DNS ID distinguish real NIC egress from an async drop.
+   $strict=Capture-Dns 'strict' ($baselineId+30000)
+   if($strict.nicQueryFrames -ne 0 -or $strict.reply){throw 'DNS UDP query escaped strict policy at NIC capture point'}
    $listener=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0);try{$listener.Start();if(-not (Can-Tcp '127.0.0.1' $listener.LocalEndpoint.Port)){throw 'Loopback exception failed'}}finally{$listener.Stop()}
   }finally{[MoondropWfp]::Clear();if($null -ne $recovery -and -not $recovery.HasExited){Stop-Process -Id $recovery.Id -Force}}
   if([MoondropWfp]::Blocked() -or -not (Can-Tcp '1.1.1.1' 443)){throw 'Release did not restore networking'}
