@@ -24,7 +24,7 @@ android {
     testOptions { unitTests.returnDefaultValues = true; animationsDisabled = true }
 }
 dependencies {
-    implementation 'androidx.core:core:1.15.0'
+    implementation 'androidx.core:core:1.19.1'
     implementation files('libs/moondrop-engine.aar')
     implementation 'com.google.code.gson:gson:2.13.2'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
