@@ -29,10 +29,15 @@ public final class AppWindow extends JFrame {
         void disconnect();
         void installCore();
         default void copyDiagnostics() { }
+        default void testSelected(Server server) { }
+        default void addManualProfile(String link) { }
+        default void eraseSavedData() { }
+        default void restoreDirectInternet() { }
     }
     private static final Color BG = new Color(18,25,33), PANEL = new Color(26,35,45),
             TEXT = new Color(237,240,231), MUTED = new Color(148,164,174), MINT = new Color(157,229,193);
     private final Actions actions;
+    private final JLabel coverage=label("Application Proxy Mode · compatible apps only",MUTED,11);
     private final ServerListModel model = new ServerListModel();
     private static final ServerPerformance UNTESTED = ServerPerformance.untested();
     private final Map<Server,String> searchText = new HashMap<>();
@@ -120,10 +125,10 @@ public final class AppWindow extends JFrame {
         sort.addActionListener(e -> filter());
         servers.setBackground(PANEL); servers.setForeground(TEXT); servers.setSelectionMode(ListSelectionModel.SINGLE_SELECTION); servers.setFixedCellHeight(84); servers.setFixedCellWidth(280); servers.setCellRenderer(new ServerRenderer());
         JScrollPane scroll = new JScrollPane(servers); scroll.setBorder(BorderFactory.createEmptyBorder()); scroll.getViewport().setBackground(PANEL); browser.add(scroll,BorderLayout.CENTER);
-        JPanel listFooter = vertical(); JPanel counts = new JPanel(new BorderLayout(8,0)); counts.setOpaque(false); counts.add(count,BorderLayout.CENTER); retest.setToolTipText("Retest every server, including cached results. Use after changing networks or routes. Completed checks are saved even if testing stops."); retest.setMargin(new Insets(5,8,5,8)); retest.addActionListener(e -> actions.retestSpeeds()); counts.add(retest,BorderLayout.EAST); counts.setAlignmentX(Component.LEFT_ALIGNMENT); listFooter.add(counts); listFooter.add(Box.createVerticalStrut(6)); listFooter.add(speedProgress); speedProgress.setToolTipText("Three HTTPS checks measure reliability and median latency. The best five candidates receive a bounded 1 MiB download test. Completed results are reused for 7 days; scans resume missing checks."); browser.add(listFooter,BorderLayout.SOUTH);
+        JPanel listFooter = vertical(); JPanel counts = new JPanel(new BorderLayout(8,0)); counts.setOpaque(false); counts.add(count,BorderLayout.CENTER); retest.setToolTipText("Retest every server, including cached results. Use after changing networks or routes. Completed checks are saved even if testing stops."); retest.setMargin(new Insets(5,8,5,8)); retest.addActionListener(e -> {if(actions.settings().privacy().singleAttempt()){Server selected=servers.getSelectedValue();if(selected!=null)actions.testSelected(selected);}else actions.retestSpeeds();}); counts.add(retest,BorderLayout.EAST); counts.setAlignmentX(Component.LEFT_ALIGNMENT); listFooter.add(counts); listFooter.add(Box.createVerticalStrut(6)); listFooter.add(speedProgress); speedProgress.setToolTipText("Three HTTPS checks measure reliability and median latency. The best five candidates receive a bounded 1 MiB download test. Completed results are reused for 7 days; scans resume missing checks."); browser.add(listFooter,BorderLayout.SOUTH);
         JPanel right = new JPanel(new BorderLayout(0,18)); right.setOpaque(false); body.add(right);
         JPanel connection = panel(new BorderLayout(0,10)); connection.setBorder(new EmptyBorder(16,20,16,20)); right.add(connection,BorderLayout.NORTH);
-        JPanel state = vertical(); state.add(label("YOUR CONNECTION",MUTED,11)); state.add(Box.createVerticalStrut(10)); state.add(status); state.add(Box.createVerticalStrut(8)); state.add(detail); connection.add(state,BorderLayout.NORTH);
+        JPanel state = vertical(); state.add(label("YOUR CONNECTION",MUTED,11));state.add(Box.createVerticalStrut(5));state.add(coverage); state.add(Box.createVerticalStrut(10)); state.add(status); state.add(Box.createVerticalStrut(8)); state.add(detail); connection.add(state,BorderLayout.NORTH);
         JPanel chosen = vertical(); chosen.add(selectedName); chosen.add(Box.createVerticalStrut(5)); chosen.add(selectedDetail); chosen.add(Box.createVerticalStrut(10));
         JPanel selectedFeatures=new JPanel(new FlowLayout(FlowLayout.LEFT,8,0));selectedFeatures.setOpaque(false);selectedFeatures.setAlignmentX(Component.LEFT_ALIGNMENT);
         selectedFeatures.add(selectedProtocol);selectedFeatures.add(selectedStrength);
@@ -155,6 +160,8 @@ public final class AppWindow extends JFrame {
         addOption(content,updates);
         JButton diagnostics=new JButton("Copy diagnostics");diagnostics.addActionListener(e -> actions.copyDiagnostics());
         diagnostics.setAlignmentX(Component.LEFT_ALIGNMENT);content.add(diagnostics);
+        JButton privacy=new JButton("Privacy & routing…");privacy.setAlignmentX(Component.LEFT_ALIGNMENT);privacy.addActionListener(e->{showPrivacySettings();testing.setSelected(actions.settings().automaticTesting());});
+        content.add(Box.createVerticalStrut(12));content.add(privacy);
         content.add(Box.createVerticalStrut(14));addOption(content,advanced);
         content.add(label("Show protocol controls, measurements and engine activity.",MUTED,11));
         JPanel advancedOptions=vertical();advancedOptions.add(Box.createVerticalStrut(12));
@@ -177,16 +184,83 @@ public final class AppWindow extends JFrame {
         content.add(label(systemProxySupported?"Proxy preference applies to your next connection.":"Linux: configure apps to use the local proxy at 127.0.0.1:17890.",MUTED,11));
         int choice=JOptionPane.showOptionDialog(this,content,"Settings",JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE,null,new String[]{"Save settings","Cancel"},"Save settings");
-        if(choice==0&&actions.saveSettings(new AppSettings(updates.isSelected(),testing.isSelected(),nearby.isSelected(),proxy.isSelected(),protocols.entrySet().stream().filter(entry -> entry.getValue().isSelected()).map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet()),advanced.isSelected()))) {
+        if(choice==0&&actions.saveSettings(new AppSettings(updates.isSelected(),testing.isSelected(),nearby.isSelected(),proxy.isSelected(),protocols.entrySet().stream().filter(entry -> entry.getValue().isSelected()).map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet()),advanced.isSelected(),actions.settings().privacy()))) {
             if(!busy&&!connected)systemProxy.setSelected(systemProxySupported&&proxy.isSelected());
             applyMode();
         }
     }
+    private record CountryChoice(String code,String name){@Override public String toString(){return name;}}
+
+    private void showPrivacySettings() {
+        AppSettings current=actions.settings();PrivacyOptions old=current.privacy();
+        JPanel content=vertical();content.setBorder(new EmptyBorder(12,12,12,12));
+        content.add(label("OPTIONAL PRIVACY & ROUTING",MUTED,11));content.add(Box.createVerticalStrut(8));
+        content.add(note("Choose the controls you want. Changes apply to future connections; your current connection stays active."));
+        JCheckBox scans=new JCheckBox("Test servers automatically",current.automaticTesting());addOption(content,scans);
+        content.add(note("Reuses saved tests before scanning. Fresh direct tests expose your connecting IP to each contacted operator. The options below can pause automatic scans."));
+        JCheckBox privacy=new JCheckBox("Try one server at a time (Privacy mode)",old.privateConnect());addOption(content,privacy);
+        content.add(note("Reuses cached rankings, pauses background scans, and asks before contacting the selected server. If it fails, choose Connect again yourself."));
+        JCheckBox warn=new JCheckBox("Ask before contacting a proxy",old.warnBeforeContact());addOption(content,warn);
+        content.add(note("Proxy operators can see the IP connecting to them. Automatic testing in the usual mode contacts multiple operators."));
+        JCheckBox detect=new JCheckBox("Detect my approximate country (IPWHOIS)",old.detectCountry());addOption(content,detect);
+        content.add(note("Optional direct HTTPS request to ipwho.is. IPWHOIS receives your public IP; only country and lookup time are saved for 24 hours."));
+        java.util.ArrayList<CountryChoice> countries=new java.util.ArrayList<>();countries.add(new CountryChoice("","No manual country"));
+        java.util.Arrays.stream(Locale.getISOCountries()).map(code->new CountryChoice(code,new Locale("",code).getDisplayCountry())).sorted(java.util.Comparator.comparing(CountryChoice::name)).forEach(countries::add);
+        JComboBox<CountryChoice> manual=new JComboBox<>(countries.toArray(CountryChoice[]::new));manual.setMaximumRowCount(9);manual.setMaximumSize(new Dimension(460,36));manual.setAlignmentX(Component.LEFT_ALIGNMENT);
+        countries.stream().filter(choice->choice.code().equals(old.manualCountry())).findFirst().ifPresent(manual::setSelectedItem);
+        manual.setRenderer(new DefaultListCellRenderer(){@Override public Component getListCellRendererComponent(JList<?> list,Object value,int index,boolean selected,boolean focus){JLabel label=(JLabel)super.getListCellRendererComponent(list,value,index,selected,focus);if(value instanceof CountryChoice choice)label.setIcon(choice.code().isEmpty()?null:FlagIcons.get(choice.code()));return label;}});
+        content.add(label("Country preference (manual overrides detection)",TEXT,12));content.add(manual);content.add(Box.createVerticalStrut(12));
+        JCheckBox secure=new JCheckBox("Protect saved credentials with the OS key store",old.secureCatalog());addOption(content,secure);
+        content.add(note("Encrypts reusable profiles with a key held by Windows DPAPI, macOS Keychain, or Linux Secret Service. A locked or missing store causes a clear error; it never silently saves plaintext."));
+        content.add(Box.createVerticalStrut(12));content.add(label("ROUTING",MUTED,11));content.add(Box.createVerticalStrut(8));
+        JCheckBox full=new JCheckBox("Full-device tunnel ("+DesktopTunnel.platform()+")",old.fullDevice());full.setEnabled(DesktopTunnel.supported());addOption(content,full);
+        content.add(note(DesktopTunnel.supported()?"Optional administrator setup manages device routing and encrypted DNS. Application Proxy Mode remains the default."+(DesktopTunnel.platform().equals("Linux")?"":" Experimental: native traffic, leak and crash validation is still required on this platform."):DesktopTunnel.requirements()));
+        JCheckBox strict=new JCheckBox("Keep internet blocked when the tunnel disconnects",old.strictTunnel());strict.setEnabled(full.isSelected());full.addActionListener(e->strict.setEnabled(full.isSelected()));addOption(content,strict);
+        content.add(note("Strict blocking survives a stopped tunnel or app crash. Reconnect or explicitly choose Restore direct internet below. It needs administrator permission."));
+        JCheckBox chain=new JCheckBox("Two-hop routing",old.twoHop());addOption(content,chain);
+        String[] entryKey={old.entryKey()};
+        Server savedEntry=all.stream().filter(server->PerformanceCache.serverKey(server).equals(entryKey[0])).findFirst().orElse(null);
+        JLabel entryLabel=label(savedEntry==null?"No entry chosen":savedEntry.countryName()+" · "+savedEntry.protocolName(),MUTED,12);content.add(entryLabel);
+        JButton entry=new JButton("Use selected server as entry");entry.setAlignmentX(Component.LEFT_ALIGNMENT);entry.addActionListener(e->{Server selected=servers.getSelectedValue();if(selected==null){JOptionPane.showMessageDialog(this,"Select a server in the main list first.");return;}entryKey[0]=PerformanceCache.serverKey(selected);entryLabel.setText(selected.countryName()+" · "+selected.protocolName());});content.add(entry);
+        content.add(note("Select an entry in the main list before opening Settings, then choose it here. Connect chooses one different exit. Entry sees your IP; exit sees destinations. Independent ownership is not verified, and colluding operators can correlate traffic. Both hops must work; there is no direct fallback. Full-device two-hop currently requires a Shadowsocks entry and TCP exit."));
+        JPanel presets=new JPanel(new FlowLayout(FlowLayout.LEFT,0,4));presets.setOpaque(false);presets.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JButton simplePreset=new JButton("Simple connection preset");
+        simplePreset.addActionListener(e->{privacy.setSelected(false);warn.setSelected(false);detect.setSelected(false);scans.setSelected(true);chain.setSelected(false);full.setSelected(false);strict.setSelected(false);strict.setEnabled(false);});
+        JButton privatePreset=new JButton("One-server privacy preset");
+        privatePreset.addActionListener(e->{privacy.setSelected(true);warn.setSelected(true);detect.setSelected(false);scans.setSelected(false);});
+        presets.add(simplePreset);presets.add(privatePreset);content.add(presets);
+        content.add(note("Presets take effect when you save. They keep your credential-protection choice. Existing strict blocking is released only with Restore direct internet."));
+        content.add(label("ALWAYS ENFORCED",MUTED,11));
+        content.add(note("Public feeds cannot access private networks. Supported encryption and TLS certificate verification are required. Portable app updates require a valid publisher signature. These safeguards have no off switch."));
+        content.add(Box.createVerticalStrut(14));content.add(label("ACTIONS",MUTED,11));content.add(Box.createVerticalStrut(8));
+        JButton test=new JButton("Test selected server only");test.setAlignmentX(Component.LEFT_ALIGNMENT);test.addActionListener(e->{Server selected=servers.getSelectedValue();if(selected==null){JOptionPane.showMessageDialog(this,"Select a server in the main list first.");return;}if(JOptionPane.showConfirmDialog(this,"Test only this selected server?\nIts operator can see your connecting IP. When connected, the test uses your current proxy.\nHTTPS checks verify this route; they do not guarantee censorship bypass.","Test one server",JOptionPane.OK_CANCEL_OPTION)==JOptionPane.OK_OPTION)actions.testSelected(selected);});content.add(test);
+        JButton manualProfile=new JButton("Add a manual proxy profile…");manualProfile.setAlignmentX(Component.LEFT_ALIGNMENT);manualProfile.addActionListener(e->{JPasswordField link=new JPasswordField();JPanel form=vertical();form.add(note("Paste a supported encrypted proxy share link. Private/LAN endpoints are allowed only for manual profiles. Connecting can contact services on your own network. Credentials stay out of logs."));form.add(link);if(JOptionPane.showConfirmDialog(this,form,"Add manual profile",JOptionPane.OK_CANCEL_OPTION)==JOptionPane.OK_OPTION){char[] value=link.getPassword();try{if(value.length>0)actions.addManualProfile(new String(value));}finally{java.util.Arrays.fill(value,'\0');link.setText("");}}});content.add(Box.createVerticalStrut(5));content.add(manualProfile);
+        JButton erase=new JButton("Erase saved profiles and test history…");erase.setAlignmentX(Component.LEFT_ALIGNMENT);erase.addActionListener(e->{if(JOptionPane.showConfirmDialog(this,"Erase saved profiles, reusable credentials, tests and country cache?\nThis does not disconnect your current session. Refresh fetches public profiles again.","Erase saved data",JOptionPane.OK_CANCEL_OPTION)==JOptionPane.OK_OPTION)actions.eraseSavedData();});content.add(Box.createVerticalStrut(5));content.add(erase);
+        JButton restore=new JButton("Restore direct internet…");restore.setEnabled(DesktopTunnel.supported()||DesktopTunnel.status().blocked());restore.setAlignmentX(Component.LEFT_ALIGNMENT);restore.addActionListener(e->{if(JOptionPane.showConfirmDialog(this,"Remove strict tunnel blocking and disconnect?\nApplications will be able to use your ordinary internet connection directly.","Restore direct internet",JOptionPane.OK_CANCEL_OPTION)==JOptionPane.OK_OPTION)actions.restoreDirectInternet();});content.add(Box.createVerticalStrut(5));content.add(restore);
+        JScrollPane scroll=new JScrollPane(content);scroll.setBorder(null);scroll.setPreferredSize(new Dimension(510,Math.min(650,Math.max(360,getHeight()-160))));scroll.getVerticalScrollBar().setUnitIncrement(18);
+        int choice=JOptionPane.showOptionDialog(this,scroll,"Privacy & routing",JOptionPane.OK_CANCEL_OPTION,JOptionPane.PLAIN_MESSAGE,null,new String[]{"Save options","Cancel"},"Save options");
+        if(choice==0){
+            if(chain.isSelected()&&entryKey[0].isEmpty()){showError("Choose an entry server","Select a server in the main list and use it as the entry before enabling two-hop routing.");return;}
+            CountryChoice country=(CountryChoice)manual.getSelectedItem();
+            PrivacyOptions next=new PrivacyOptions(privacy.isSelected(),warn.isSelected(),detect.isSelected(),country==null?"":country.code(),secure.isSelected(),chain.isSelected(),entryKey[0],full.isSelected(),full.isSelected()&&strict.isSelected());
+            AppSettings latest=actions.settings();
+            if(actions.saveSettings(new AppSettings(latest.automaticUpdates(),scans.isSelected(),latest.nearbyFirst(),latest.systemProxy(),latest.enabledProtocols(),latest.advancedMode(),next)))applyMode();
+        }
+    }
+    private static JLabel note(String text){JLabel label=label("<html><div style='width:350px'>"+escape(text)+"</div></html>",MUTED,11);label.setAlignmentX(Component.LEFT_ALIGNMENT);label.setBorder(new EmptyBorder(2,0,10,0));return label;}
+    public boolean confirmProxyContact(Server server,Server entry,boolean fullDevice,boolean strict){
+        String routing=entry==null?"This proxy operator can see your public IP and destination metadata.":"Your entry operator sees your IP. Your exit receives traffic through the entry. Independent ownership is not verified; collusion can correlate traffic.";
+        String local=PublicEndpoints.manual(server)?"\nThis is a manual profile. Private/LAN endpoints may contact services on your network.":"";
+        String device=fullDevice?"\nFull-device routing requires administrator permission."+(strict?" Strict mode will keep internet blocked if connection setup or the tunnel fails. Use Restore direct internet to release it.":""):"\nApplication Proxy Mode covers applications that use its proxy settings.";
+        return JOptionPane.showConfirmDialog(this,"Connect to "+server.countryName()+" · "+server.protocolName()+"?\n"+routing+local+device,"Proxy contact",JOptionPane.OK_CANCEL_OPTION,JOptionPane.INFORMATION_MESSAGE)==JOptionPane.OK_OPTION;
+    }
+
     private static void addOption(JPanel content,JCheckBox option) {
         option.setOpaque(false);option.setAlignmentX(Component.LEFT_ALIGNMENT);content.add(option);content.add(Box.createVerticalStrut(6));
     }
     private void applyMode() {
         boolean advanced=actions.settings().advancedMode();
+        if(!connected)coverage.setText(actions.settings().privacy().fullDevice()?"Full-device tunnel · "+DesktopTunnel.platform()+" routing and DNS":"Application Proxy Mode · compatible apps only");
         enginePanel.setVisible(advanced);proxyControls.setVisible(advanced||!systemProxySupported);
         serverDetails.setSelected(advanced);serverDetails.setText(advanced?"Hide server details":"Show server details");
         selectedExplanation.setVisible(advanced);speedProgress.setVisible(advanced);
@@ -242,7 +316,7 @@ public final class AppWindow extends JFrame {
     }
     public void setPerformance(Server server,ServerPerformance value){performance.put(server,value);if(!performanceRefresh.isRunning())performanceRefresh.start();}
     public void clearPerformance(){performance.clear();performanceRefresh.stop();filter();}
-    public void setSpeedTesting(boolean running,String progress){speedTesting=running;retest.setText(running?"Stop testing":"Retest speeds");retest.setToolTipText(running?"Stop testing and keep completed results. Automatic checks resume missing results on the next launch.":"Retest every server, including cached results. Use after changing networks or routes.");speedProgress.setText(progress!=null&&!progress.isBlank()?progress:running?"Testing latency · progress saved…":"Latency · 7-day cache");updateDiscovery();updateControls();}
+    public void setSpeedTesting(boolean running,String progress){speedTesting=running;retest.setText(running?"Stop testing":actions.settings().privacy().singleAttempt()?"Test selected":"Retest speeds");retest.setToolTipText(running?"Stop testing and keep completed results. Automatic checks resume missing results on the next launch.":"Retest every server, including cached results. Use after changing networks or routes.");speedProgress.setText(progress!=null&&!progress.isBlank()?progress:running?"Testing latency · progress saved…":"Latency · 7-day cache");updateDiscovery();updateControls();}
     public void setCatalogRefreshing(boolean running,boolean saved) {
         catalogRefreshing=running;savedCatalog=saved;
         refresh.setToolTipText(running?"Refreshing servers in the background…":"Refresh servers");

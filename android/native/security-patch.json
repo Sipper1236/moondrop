@@ -1,0 +1,81 @@
+{
+  "upstream_repository": "https://github.com/SagerNet/sing-box",
+  "upstream_version": "1.14.3",
+  "upstream_commit": "7054cac5124465ffdb145870d7c01885566711b1",
+  "engine_version": "1.14.3-moondrop-security.1",
+  "go_toolchain": "go1.26.9",
+  "files": {
+    "go.mod": {
+      "original_sha256": "bcddd492e73c480f878206d36816ae0dbd1cae1a777da57b0fd034e9da721d19",
+      "patched_sha256": "16c34f1604198a7e78f506ae32415916e1a60840eda2f492f0bfc9bf5b179cdd",
+      "patch_file": "security-go.mod"
+    },
+    "go.sum": {
+      "original_sha256": "5fa44177a4219976213e3ce746431d6907b32b183ba9b74f8f7d85044b0028ef",
+      "patched_sha256": "370e7bc3a6f585e059f3c4c0027bdde2b388aaa095e961e62cf41fcc4d65bf03",
+      "patch_file": "security-go.sum"
+    }
+  },
+  "module_changes": [
+    {
+      "module": "github.com/go-chi/chi/v5",
+      "from": "v5.2.5",
+      "to": "v5.3.0"
+    },
+    {
+      "module": "github.com/go-jose/go-jose/v4",
+      "from": "v4.1.3",
+      "to": "v4.1.4"
+    },
+    {
+      "module": "golang.org/x/crypto",
+      "from": "v0.54.0",
+      "to": "v0.57.0"
+    },
+    {
+      "module": "golang.org/x/mod",
+      "from": "v0.37.0",
+      "to": "v0.41.0"
+    },
+    {
+      "module": "golang.org/x/net",
+      "from": "v0.57.0",
+      "to": "v0.60.0"
+    },
+    {
+      "module": "golang.org/x/sync",
+      "from": "v0.22.0",
+      "to": "v0.23.0"
+    },
+    {
+      "module": "golang.org/x/sys",
+      "from": "v0.47.0",
+      "to": "v0.48.0"
+    },
+    {
+      "module": "golang.org/x/term",
+      "from": "v0.45.0",
+      "to": "v0.46.0"
+    },
+    {
+      "module": "golang.org/x/text",
+      "from": "v0.40.0",
+      "to": "v0.42.0"
+    },
+    {
+      "module": "golang.org/x/tools",
+      "from": "v0.47.0",
+      "to": "v0.49.0"
+    },
+    {
+      "module": "google.golang.org/genproto/googleapis/rpc",
+      "from": "v0.0.0-20251202230838-ff82c1b0f217",
+      "to": "v0.0.0-20260526163538-3dc84a4a5aaa"
+    },
+    {
+      "module": "google.golang.org/grpc",
+      "from": "v1.79.1",
+      "to": "v1.83.2"
+    }
+  ]
+}

@@ -31,7 +31,7 @@ public final class ProxyEngine implements AutoCloseable {
             String tag = "node-" + i++, inbound = "in-" + tag;
             inbounds.add(new Gson().toJsonTree(Map.of("type", "mixed", "tag", inbound, "listen", "127.0.0.1", "listen_port", binding.getKey())));
             Server s = binding.getValue();
-            JsonObject outbound=s.outbound();outbound.addProperty("tag",tag);outbounds.add(outbound);
+            JsonObject outbound=PublicEndpoints.outbound(s);outbound.addProperty("tag",tag);outbounds.add(outbound);
             rules.add(new Gson().toJsonTree(Map.of("inbound", List.of(inbound), "outbound", tag, "action", "route")));
         }
         root.add("inbounds", inbounds); root.add("outbounds", outbounds);
@@ -39,28 +39,80 @@ public final class ProxyEngine implements AutoCloseable {
         return root;
     }
 
+    static JsonObject configurationChain(Server entry, Server exit) { return configurationChain(PORT, entry, exit); }
+
+    static JsonObject configurationChain(int listenerPort, Server entry, Server exit) {
+        if (entry.host().equalsIgnoreCase(exit.host()) && entry.port() == exit.port())
+            throw new IllegalArgumentException("Choose two different proxy endpoints for two-hop routing.");
+        JsonObject root = configuration(Map.of(listenerPort, exit));
+        JsonArray outbounds = root.getAsJsonArray("outbounds");
+        outbounds.get(0).getAsJsonObject().addProperty("detour", "chain-entry");
+        JsonObject first = PublicEndpoints.outbound(entry);
+        if (first.get("server").getAsString().equals(outbounds.get(0).getAsJsonObject().get("server").getAsString()) && entry.port() == exit.port())
+            throw new IllegalArgumentException("The entry and exit resolve to the same proxy endpoint.");
+        first.addProperty("tag", "chain-entry");
+        outbounds.add(first);
+        return root;
+    }
+
+    public synchronized void startChain(Server entry, Server exit, Consumer<String> logs) throws Exception {
+        startChain(PORT, entry, exit, logs);
+    }
+
+    public synchronized void startChain(int listenerPort, Server entry, Server exit, Consumer<String> logs) throws Exception {
+        validPort(listenerPort);
+        startConfiguration(configurationChain(listenerPort, entry, exit), listenerPort, logs);
+    }
+
+    /** Tests a new candidate through the established local SOCKS listener. The only
+     * direct socket owned by this temporary engine is to loopback; no direct fallback exists. */
+    public synchronized void startViaLocalProxy(int listenerPort, Server exit, int establishedProxyPort,
+                                                Consumer<String> logs) throws Exception {
+        startConfiguration(configurationViaLocalProxy(listenerPort, exit, establishedProxyPort), listenerPort, logs);
+    }
+
+    static JsonObject configurationViaLocalProxy(int listenerPort, Server exit, int establishedProxyPort) {
+        validPort(listenerPort);validPort(establishedProxyPort);
+        if(listenerPort==establishedProxyPort)throw new IllegalArgumentException("The test listener must differ from the established proxy listener.");
+        JsonObject root=configuration(Map.of(listenerPort,exit));
+        JsonArray outbounds=root.getAsJsonArray("outbounds");
+        outbounds.get(0).getAsJsonObject().addProperty("detour","established-local-proxy");
+        JsonObject entry=new JsonObject();
+        entry.addProperty("type","socks");entry.addProperty("tag","established-local-proxy");
+        entry.addProperty("server","127.0.0.1");entry.addProperty("server_port",establishedProxyPort);entry.addProperty("version","5");
+        outbounds.add(entry);
+        return root;
+    }
+    private static void validPort(int port) {
+        if(port<1 || port>65535)throw new IllegalArgumentException("Invalid local proxy listener port.");
+    }
+
     public synchronized void start(Map<Integer,Server> bindings, Consumer<String> logs) throws Exception {
-        if (process != null) throw new IllegalStateException("Engine already running");
         if (bindings.isEmpty()) throw new IllegalArgumentException("No server selected");
+        startConfiguration(configuration(bindings), bindings.keySet().iterator().next(), logs);
+    }
+
+    private void startConfiguration(JsonObject settings, int listenerPort, Consumer<String> logs) throws Exception {
+        if (process != null) throw new IllegalStateException("Engine already running");
         Files.createDirectories(directory);
         try {
             try { config = Files.createTempFile(directory.toRealPath(),"session-", ".json", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))); }
             catch (UnsupportedOperationException e) { config = Files.createTempFile(directory.toRealPath(),"session-", ".json"); }
-            Files.writeString(config, configuration(bindings).toString(), StandardCharsets.UTF_8);
+            Files.writeString(config, settings.toString(), StandardCharsets.UTF_8);
             Path executable = binary.toRealPath();
             process = new ProcessBuilder(executable.toString(), "run", "-c", config.toString()).redirectErrorStream(true).start();
             Process child = process;
             saveOwnership(child, executable);
             Thread reader = new Thread(() -> {
                 try (BufferedReader in = child.inputReader()) { String line; int count = 0;
-                    while ((line = in.readLine()) != null) if (++count <= 50) logs.accept("Engine: " + line.replaceAll("\\u001B\\[[;\\d]*m", ""));
+                    while ((line = in.readLine()) != null) if (++count <= 50) logs.accept("Engine reported a connection or configuration error. Choose another server if the connection fails.");
                 } catch (IOException ignored) { }
             }, "engine-output"); reader.setDaemon(true); reader.start();
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
             while (System.nanoTime() < deadline) {
                 if (!child.isAlive()) throw new IOException("The engine could not start. Check the activity log or choose another server.");
                 try (Socket socket = new Socket()) {
-                    socket.connect(new InetSocketAddress("127.0.0.1", bindings.keySet().iterator().next()), 100);
+                    socket.connect(new InetSocketAddress("127.0.0.1", listenerPort), 100);
                     return;
                 } catch (IOException e) { Thread.sleep(60); }
             }

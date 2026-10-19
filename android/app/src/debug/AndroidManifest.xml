@@ -1,5 +1,6 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- The emulator's isolated restore fixture uses cleartext only in debug builds. -->
+    <application android:usesCleartextTraffic="true" tools:replace="android:usesCleartextTraffic">
         <!-- Test-only service. This component is absent from release APKs. -->
         <service android:name=".FixtureVpnService" android:permission="android.permission.BIND_VPN_SERVICE" android:exported="false" android:foregroundServiceType="specialUse">
             <intent-filter><action android:name="android.net.VpnService"/></intent-filter>

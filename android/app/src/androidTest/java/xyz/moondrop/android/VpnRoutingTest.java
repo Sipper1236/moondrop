@@ -23,21 +23,27 @@ import static org.junit.Assume.assumeTrue;
 public final class VpnRoutingTest {
     @Rule public ActivityTestRule<MainActivity> activity=new ActivityTestRule<>(MainActivity.class,false,false);
     @Test public void anotherApplicationRoutesThroughTheEncryptedVpn() throws Exception {
+        ControllerTestIsolation.reset();
         String ssPort=InstrumentationRegistry.getArguments().getString("fixtureSsPort");
         assumeTrue("Run scripts/vpn-fixture.py and pass fixtureSsPort",ssPort!=null);
         Instrumentation instrumentation=InstrumentationRegistry.getInstrumentation();
         Context context=instrumentation.getTargetContext();
         context.getSharedPreferences("settings",Context.MODE_PRIVATE).edit().putBoolean("testing",false).commit();
         activity.launchActivity(null);
-        shell(instrumentation,"appops set "+context.getPackageName()+" ACTIVATE_VPN allow");
+        shell(instrumentation,"appops set --user 0 "+context.getPackageName()+" ACTIVATE_VPN allow");
         assertNull("VPN access must be authorized by the test harness",VpnService.prepare(context));
-        Server endpoint=new Server("vpn-fixture",InstrumentationRegistry.getArguments().getString("fixtureSsHost","127.0.0.1"),Integer.parseInt(ssPort),"chacha20-ietf-poly1305","moondrop-local-routing-fixture","CA","Local fixture","",true);
+        Server endpoint=new Server("manual:vpn-fixture",InstrumentationRegistry.getArguments().getString("fixtureSsHost","127.0.0.1"),Integer.parseInt(ssPort),"chacha20-ietf-poly1305","moondrop-local-routing-fixture","CA","Local fixture","",true);
+        int refreshPort;try(java.net.ServerSocket reservation=new java.net.ServerSocket(0,1,java.net.InetAddress.getLoopbackAddress())){refreshPort=reservation.getLocalPort();}
         FixtureVpnService.reset();
-        Intent service=new Intent(context,FixtureVpnService.class).putExtra("config",AppController.configuration(endpoint,0,true));
+        Intent service=new Intent(context,FixtureVpnService.class).putExtra("config",AppController.configuration(endpoint,refreshPort,true));
         try{
             context.startForegroundService(service);
             assertTrue("VPN engine did not start",FixtureVpnService.ready.await(30,TimeUnit.SECONDS));
             if(FixtureVpnService.failure!=null)throw new AssertionError("VPN engine start failed",FixtureVpnService.failure);
+            java.net.Proxy proxy=new java.net.Proxy(java.net.Proxy.Type.HTTP,new java.net.InetSocketAddress("127.0.0.1",refreshPort));
+            java.net.HttpURLConnection refresh=(java.net.HttpURLConnection)new java.net.URL("http://198.18.0.42/refresh-probe").openConnection(proxy);
+            refresh.setConnectTimeout(4000);refresh.setReadTimeout(4000);
+            try{assertEquals(200,refresh.getResponseCode());try(var input=refresh.getInputStream()){assertTrue(new String(input.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).contains("moondrop-vpn-routing-passed"));}}finally{refresh.disconnect();}
             // The probe Activity runs as the test APK's separate UID. Moondrop's own UID is excluded.
             // 198.18.0.42 has no host listener or direct route: only the remote fixture remaps it to HTTP.
             shell(instrumentation,"am start -W -n "+instrumentation.getContext().getPackageName()+"/xyz.moondrop.android.RoutingProbeActivity");
@@ -51,7 +57,7 @@ public final class VpnRoutingTest {
         }finally{
             context.stopService(service);
             instrumentation.waitForIdleSync();NativeEngine.stop();
-            shell(instrumentation,"appops set "+context.getPackageName()+" ACTIVATE_VPN default");
+            shell(instrumentation,"appops set --user 0 "+context.getPackageName()+" ACTIVATE_VPN default");
         }
     }
     private static String shell(Instrumentation instrumentation,String command)throws Exception {

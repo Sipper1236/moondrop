@@ -13,7 +13,7 @@ case "$(uname -m)" in arm64) architecture=arm64 ;; x86_64) architecture=x64 ;; *
 jdk_bin="${JAVA_HOME:?Set JAVA_HOME to a full JDK 21}/bin"
 rm -rf -- target/native-runtime target/native-input target/native-icons target/native-image target/native-installer
 mkdir -p target/native-input target/native-icons target/native-image target/native-installer dist
-cp target/moondrop.jar README.md INSTALL.md LICENSE THIRD_PARTY.md target/native-input/
+cp target/moondrop.jar README.md INSTALL.md LICENSE THIRD_PARTY.md MACOS-TUNNEL.md WINDOWS-TUNNEL.md target/native-input/
 "$jdk_bin/jlink" --add-modules java.se,jdk.crypto.ec,jdk.unsupported --strip-debug --no-header-files --no-man-pages --output target/native-runtime
 "$jdk_bin/java" -Djava.awt.headless=true --class-path target/moondrop.jar scripts/DesktopIcons.java moondrop.svg target/native-icons
 iconset=target/native-icons/moondrop.iconset

@@ -10,12 +10,15 @@ import java.nio.channels.*;
 import java.nio.file.*;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class Main implements AppWindow.Actions {
     private final Path data;
+    private final Object catalogStorageLock=new Object();
+    private volatile boolean catalogPersistenceBlocked;
     private volatile AppSettings settings=AppSettings.defaults();
     private final CoreInstaller installer;
     private final SystemProxy system;
@@ -26,6 +29,7 @@ public final class Main implements AppWindow.Actions {
     private volatile PendingUpdate pendingUpdate;
     private volatile AppUpdater.Release nativeUpdate;
     private final PerformanceCache performanceCache;
+    private final BootstrapHistory bootstrap;
     private final ServerCache serverCache;
     private final ServerCatalog catalog;
     private final ExecutorService catalogWorker=Executors.newSingleThreadExecutor(r -> {Thread t=new Thread(r,"catalog-refresh");t.setDaemon(true);return t;});
@@ -46,6 +50,9 @@ public final class Main implements AppWindow.Actions {
     private volatile Future<?> task;
     private volatile ProxyEngine engine;
     private volatile boolean connected;
+    private volatile Server connectedServer;
+    private final DesktopTunnel tunnel;
+    private final AtomicInteger catalogGeneration=new AtomicInteger();
     private volatile String lastOperation="Starting";
     private volatile String lastErrorCategory="None";
     private AppWindow window;
@@ -53,7 +60,7 @@ public final class Main implements AppWindow.Actions {
     private FileLock lock;
 
     private Main(Path data) {this(data,new ServerCatalog());}
-    Main(Path data,ServerCatalog catalog) { this.data=data;this.catalog=catalog;serverCache=new ServerCache(data);installer=new CoreInstaller(data); system=new SystemProxy(data);performanceCache=new PerformanceCache(data);proximity=new ServerProximity(data);updater=new AppUpdater(data); }
+    Main(Path data,ServerCatalog catalog) { this.data=data;this.catalog=catalog;bootstrap=new BootstrapHistory(data);serverCache=new ServerCache(data);installer=new CoreInstaller(data); system=new SystemProxy(data);performanceCache=new PerformanceCache(data);proximity=new ServerProximity(data);updater=new AppUpdater(data);tunnel=new DesktopTunnel(data,this::log); }
 
     public static void main(String[] args) {
         if(args.length>0 && (args[0].equals("--install-engine")||args[0].equals("--smoke-test"))) {
@@ -66,7 +73,11 @@ public final class Main implements AppWindow.Actions {
                 if(!core.ready()) core.install(System.out::println);
                 if(args[0].equals("--smoke-test")) {
                     List<Server> list=new ServerCatalog().fetch().servers();
-                    String nearby=new ServerProximity(directory).locate().orElse(null);
+                    AppSettings commandSettings=AppSettings.load(directory);
+                    if(commandSettings.privacy().singleAttempt())throw new IOException("The broad command-line smoke test is disabled by your privacy/routing options. Use Connect or Test selected server in the app.");
+                    list=commandSettings.eligible(list);
+                    System.out.println("This explicit smoke test contacts multiple public proxy operators; each contacted operator can see your connecting IP.");
+                    String nearby=new ServerProximity(directory).locate(commandSettings.privacy().detectCountry(),commandSettings.privacy().manualCountry()).orElse(null);
                     QuickConnect.Result best=new QuickConnect().find(list,core.binary(),directory,System.out::println,ignored -> { },nearby);
                     try(ProxyEngine proxy=new ProxyEngine(core.binary(),directory)) {
                         ProxyEngine.ensurePortFree(ProxyEngine.PORT);
@@ -110,7 +121,7 @@ public final class Main implements AppWindow.Actions {
             JOptionPane.showMessageDialog(null,e.getMessage(),"Cannot open Moondrop",JOptionPane.ERROR_MESSAGE);
             releaseLock(); return;
         }
-        try { settings=AppSettings.load(data); } catch(IOException ignored) { /* Defaults remain usable. */ }
+        try { settings=AppSettings.load(data); } catch(IOException|IllegalArgumentException ignored) { settings=new AppSettings(true,false,false,true,Set.copyOf(AppSettings.PROTOCOLS),false,new PrivacyOptions(true,true,false,"",ServerCache.hasEncryptedSnapshot(data),false,"",false,false)); }
         window=new AppWindow(this);
         window.setSystemProxySupported(system.isSupported());
         window.addWindowListener(new WindowAdapter(){@Override public void windowClosing(WindowEvent e){shutdown();}});
@@ -124,15 +135,16 @@ public final class Main implements AppWindow.Actions {
         },"shutdown-recovery"));
         window.setCoreReady(installer.ready());
         window.appendLog("Select a location or use Quick Connect.");
-        window.appendLog("Local HTTP / SOCKS5 · 127.0.0.1:"+ProxyEngine.PORT);
+        window.appendLog("Application Proxy Mode · compatible apps only. Optional privacy and full-device tunnel controls are in Settings.");
+        if(DesktopTunnel.status().blocked())window.appendLog("Strict tunnel blocking is still active. Reconnect or use Restore direct internet in Settings → Privacy & routing.");
         window.setVisible(true);
         if(settings.automaticUpdates())checkForUpdates();
         monitor.scheduleWithFixedDelay(() -> {if(settings.automaticUpdates())checkForUpdates();},6,6,TimeUnit.HOURS);
         monitor.scheduleWithFixedDelay(() -> {
             ProxyEngine current=engine;
-            if(connected&&current!=null&&!current.alive()&&!closing.get()) {
+            if(connected&&((current!=null&&!current.alive())||(current==null&&!tunnel.isAlive()))&&!closing.get()) {
                 connected=false;
-                submit("Recovering", () -> {cleanup(); ui(() -> window.setConnection("Disconnected","The engine stopped. Previous proxy settings restored.",false));});
+                submit("Recovering", () -> {cleanup(); ui(() -> window.setConnection("Disconnected",DesktopTunnel.status().blocked()?"Tunnel stopped. Direct internet stays blocked; reconnect or restore it in Privacy & routing.":"The engine stopped. Previous application proxy settings restored.",false));});
             }
         },2,2,TimeUnit.SECONDS);
         submit("Loading servers", () -> {
@@ -146,18 +158,39 @@ public final class Main implements AppWindow.Actions {
 
     @Override public AppSettings settings() { return settings; }
     @Override public boolean saveSettings(AppSettings next) {
-        try { next.save(data); }
-        catch(IOException e) { window.showError("Could not save settings",safeMessage(e)); return false; }
-        AppSettings previous=settings; settings=next;
-        if(!next.nearbyFirst())nearbyCountry=null;
+        AppSettings previous;
+        try {
+            synchronized(catalogStorageLock) {
+                previous=settings;
+                List<Server> snapshot=List.of();
+                boolean storageChanged=next.privacy().secureCatalog()!=previous.privacy().secureCatalog();
+                if(storageChanged&&catalogPersistenceBlocked)throw new IOException("Unlock the saved credential store and restart, or explicitly erase saved profiles before changing credential protection.");
+                if(storageChanged)snapshot=servers.isEmpty()?serverCache.load():servers;
+                // Enabling commits ciphertext before the setting; a failed preference write
+                // can leave stronger protection, never a true setting with a plaintext cache.
+                if(storageChanged&&next.privacy().secureCatalog()&&!snapshot.isEmpty())serverCache.save(snapshot,true);
+                next.save(data);
+                settings=next;
+                // Disabling is an explicit opt-out persisted before any plaintext write.
+                if(storageChanged&&!next.privacy().secureCatalog()&&!snapshot.isEmpty()) {
+                    try {serverCache.save(snapshot,false);}catch(IOException strongerCacheRetained){log("Settings saved. Existing encrypted profiles were retained until the next successful catalog save.");}
+                }
+            }
+        } catch(IOException e) { window.showError("Could not save settings",safeMessage(e)); return false; }
+        proximity.resetConsent();
+        nearbyCountry=next.nearbyFirst()?proximity.locate(false,next.privacy().manualCountry()).orElse(null):null;
         boolean protocolsChanged=!next.enabledProtocols().equals(previous.enabledProtocols());
         if(protocolsChanged)window.setServers(eligibleServers());
-        if(!next.automaticTesting()||protocolsChanged)cancelSpeedTests();
-        if(next.automaticTesting()&&(protocolsChanged||!previous.automaticTesting())&&!servers.isEmpty())startSpeedTests(false);
+        if(!next.bulkTestingAllowed()||protocolsChanged)cancelSpeedTests();
+        if(next.bulkTestingAllowed()&&(protocolsChanged||!previous.bulkTestingAllowed())&&!servers.isEmpty())startSpeedTests(false);
         if(next.automaticUpdates()&&!previous.automaticUpdates())checkForUpdates();
-        log("Settings saved.");
+        log("Settings saved. Routing changes apply to your next connection.");
         return true;
     }
+
+    private void saveCatalog(List<Server> snapshot)throws IOException {synchronized(catalogStorageLock){if(catalogPersistenceBlocked)throw new IOException("Saved profiles are locked or damaged; keeping the existing snapshot until it is unlocked or explicitly erased.");serverCache.save(snapshot,settings.privacy().secureCatalog());}}
+
+    private String locateCountry(){return settings.nearbyFirst()?proximity.locate(settings.privacy().detectCountry(),settings.privacy().manualCountry()).orElse(null):null;}
 
     private List<Server> eligibleServers() { return settings.eligible(servers); }
 
@@ -167,55 +200,62 @@ public final class Main implements AppWindow.Actions {
     void loadInitialServers() {
         try {
             List<Server> cached=serverCache.load();
+            if(serverCache.legacyPrivateProfilesDropped())
+                log("Some private endpoints in the old server cache were removed because their source could not be verified. Re-add home-lab profiles manually.");
             if(!cached.isEmpty()) {
                 showServers(cached);
                 log("Loaded "+cached.size()+" saved servers and their cached measurements.");
                 ui(() -> {if(!connected)window.setConnection("Disconnected","Saved servers are ready. Choose Connect while the list refreshes.",false);});
             }
-        } catch(IOException unavailable) { log("Could not read saved servers. Downloading a fresh list."); }
+        } catch(IOException unavailable) { catalogPersistenceBlocked=true;log("Saved profiles are locked or damaged. Fresh feeds remain usable in memory. Unlock the OS credential store and restart, or explicitly erase saved profiles in Privacy & routing."); }
         refreshCatalog();
     }
 
     private void refreshCatalog() {
         if(closing.get()||!refreshingCatalog.compareAndSet(false,true))return;
         ui(() -> window.setCatalogRefreshing(true,!servers.isEmpty()));
+        int catalogTicket=catalogGeneration.get();
         catalogWorker.submit(() -> {
+            boolean throughProxy=connected;
             try {
-                ServerCatalog.Result fresh=catalog.fetch();
-                String country=settings.nearbyFirst()?proximity.locate().orElse(null):null;
+                ServerCatalog.Result fresh=throughProxy?catalog.fetch(ProxyEngine.PORT):catalog.fetch();
+                if(catalogTicket!=catalogGeneration.get()){refreshingCatalog.set(false);ui(()->window.setCatalogRefreshing(false,false));return;}
+                String country=locateCountry();
                 if(closing.get()||Thread.currentThread().isInterrupted()){refreshingCatalog.set(false);return;}
                 // Only applying the completed response uses the connection worker. Feed I/O never blocks Connect.
                 worker.submit(() -> {
-                    try {if(!closing.get())applyCatalog(fresh,country);}
-                    finally {refreshingCatalog.set(false);ui(() -> window.setCatalogRefreshing(false,false));}
+                    try {if(!closing.get()&&catalogTicket==catalogGeneration.get())applyCatalog(fresh,country);}
+                    finally {refreshingCatalog.set(false);ui(() -> window.setCatalogRefreshing(false,false));if(connected&&!throughProxy&&catalogTicket==catalogGeneration.get())refreshCatalog();}
                 });
             } catch(InterruptedException|CancellationException ignored) {Thread.currentThread().interrupt();refreshingCatalog.set(false);}
             catch(Exception unavailable) {
                 refreshingCatalog.set(false);
                 log("Server refresh unavailable. Saved servers and measurements were kept.");
+                if(connected&&!throughProxy&&catalogTicket==catalogGeneration.get())refreshCatalog();
                 ui(() -> {
                     window.setCatalogRefreshing(false,!servers.isEmpty());
                     if(servers.isEmpty()&&!connected)window.setConnection("No servers available","Could not download servers. Check your connection and use Refresh.",false);
                 });
-                if(!closing.get())worker.submit(() -> {if(settings.automaticTesting()&&!servers.isEmpty()&&!speedTesting)startSpeedTests(false);});
+                if(!closing.get())worker.submit(() -> {if(settings.bulkTestingAllowed()&&!servers.isEmpty()&&!speedTesting)startSpeedTests(false);});
             }
         });
     }
 
     private void loadServers() throws Exception {
-        applyCatalog(catalog.fetch(),settings.nearbyFirst()?proximity.locate().orElse(null):null);
+        applyCatalog(catalog.fetch(),locateCountry());
     }
 
     private void applyCatalog(ServerCatalog.Result fresh,String country) {
         cancelSpeedTests();
         nearbyCountry=settings.nearbyFirst()?country:null;
-        showServers(fresh.servers());
-        try {serverCache.save(fresh.servers());}catch(IOException unavailable){log("Could not save the server list. Current servers are still usable.");}
+        List<Server> merged=bootstrap.retain(servers,fresh.servers());
+        showServers(merged);
+        try {saveCatalog(merged);}catch(IOException unavailable){log("Could not save the server list. Current servers are still usable.");}
         ui(() -> {if(!connected)window.setConnection("Disconnected","Choose Connect to find your best connection.",false);});
         log("Updated · "+fresh.servers().size()+" protected proxy servers");
         fresh.counts().forEach((source,count) -> log(source+" · "+count+" unique servers"));
         fresh.warnings().forEach(this::log);
-        if(settings.automaticTesting())startSpeedTests(false);
+        if(settings.bulkTestingAllowed())startSpeedTests(false);
     }
 
     private void showServers(List<Server> available) {
@@ -241,7 +281,17 @@ public final class Main implements AppWindow.Actions {
             cancelSpeedTests();
             List<Server> eligible=eligibleServers();
             if(eligible.isEmpty())throw new IOException("No enabled protocols have servers. Enable a protocol in Settings or refresh the server list.");
-            List<Server> ranked=performance.connectionCandidates(eligible,3);
+            if(settings.privacy().singleAttempt()) {
+                Server entry=selectedEntry();
+                List<Server> exits=entry==null?eligible:eligible.stream().filter(candidate->!PerformanceCache.serverKey(candidate).equals(PerformanceCache.serverKey(entry))).toList();
+                List<Server> entries=entry==null?bootstrap.preferred(exits):List.of();
+                Server selected=entries.isEmpty()?ConnectionPolicy.selectSingle(exits,performance.snapshot(),nearbyCountry):entries.get(0);
+                connectNow(selected,useSystem,null);
+                return;
+            }
+            java.util.LinkedHashSet<Server> savedOrder=new java.util.LinkedHashSet<>(bootstrap.preferred(eligible));
+            savedOrder.addAll(performance.connectionCandidates(eligible,3));
+            List<Server> ranked=List.copyOf(savedOrder);
             for(Server cached:ranked) {
                 checkCancelled();
                 ProxyEngine.ensurePortFree(ProxyEngine.PORT);
@@ -249,19 +299,20 @@ public final class Main implements AppWindow.Actions {
                 try {connectNow(cached,useSystem,null);log("Used cached server ranking; connection verified again.");return;}
                 catch(Exception failure) {
                     if(!retryableServerFailure(cached,failure))throw failure;
+                    bootstrap.failed(cached);
                     connectionStage("Trying another server","The saved server is unavailable. Checking another connection…");
                 }
             }
-            List<Server> candidates=performance.quickCandidates(eligible);
+            List<Server> candidates=performance.quickCandidates(eligible).stream().filter(server->!PublicEndpoints.manual(server)).toList();
             if(candidates.isEmpty()) {
-                candidates=eligible;
+                candidates=eligible.stream().filter(server->!PublicEndpoints.manual(server)).toList();
                 connectionStage("Rechecking servers","Saved servers are unavailable. Checking again for a working connection…");
             }
             QuickConnect.Result result=new QuickConnect().find(candidates,installer.binary(),data,progress -> {
                 log(progress); connectionStage("Finding a server",progress);
             },update -> recordPerformance(update.server(),update.performance()),nearbyCountry,performance.snapshot());
             checkCancelled();
-            log("Best of "+result.tested()+" tested · "+result.server().displayName()+" · median HTTPS "+result.millis()+" ms");
+            log("Best of "+result.tested()+" tested · median HTTPS "+result.millis()+" ms");
             try {connectNow(result.server(),useSystem,result.millis());}
             catch(Exception failure) {
                 if(!retryableServerFailure(result.server(),failure))throw failure;
@@ -279,7 +330,7 @@ public final class Main implements AppWindow.Actions {
                 }
                 throw last;
             }
-            } finally {if(settings.automaticTesting()&&!closing.get()&&!Thread.currentThread().isInterrupted())startSpeedTests(false);}
+            } finally {if(settings.bulkTestingAllowed()&&!closing.get()&&!Thread.currentThread().isInterrupted())startSpeedTests(false);}
         });
     }
 
@@ -291,9 +342,11 @@ public final class Main implements AppWindow.Actions {
 
     private void startSpeedTests(boolean force) {
         cancelSpeedTests();
+        if(connected){ui(()->window.setSpeedTesting(false,"Connected · test selected servers through your proxy in Settings"));return;}
+        if(settings.privacy().singleAttempt()) {ui(()->window.setSpeedTesting(false,"Automatic scanning paused · test one selected server in Privacy & routing"));return;}
         List<Server> eligible=eligibleServers();
         if(eligible.isEmpty()) {ui(() -> window.setSpeedTesting(false,"No servers for enabled protocols"));return;}
-        List<Server> pending=ServerProximity.prioritize(performance.pending(eligible,force),nearbyCountry);
+        List<Server> pending=ServerProximity.prioritize(performance.pending(eligible,force).stream().filter(server->!PublicEndpoints.manual(server)).toList(),nearbyCountry);
         int reused=eligible.size()-pending.size();
         if(pending.isEmpty()&&performance.bandwidthCandidates(eligible,5).isEmpty()) {ui(() -> window.setSpeedTesting(false,"Using "+reused+" saved checks · 7-day cache"));return;}
         int generation=speedGeneration.incrementAndGet();speedTesting=true;
@@ -382,34 +435,41 @@ public final class Main implements AppWindow.Actions {
 
     private void connectNow(Server server,boolean useSystem,Long measured) throws Exception {
         if(!settings.allows(server))throw new IOException("This protocol is disabled. Enable it in Settings before connecting.");
+        Server entry=selectedEntry();
+        if(!confirmContact(server,entry))throw new CancellationException("Connection cancelled");
+        cancelSpeedTests();
         cleanup(); checkCancelled();
         if(!installer.ready()) throw new IOException("Install the engine first.");
         ProxyEngine.ensurePortFree(ProxyEngine.PORT);
-        ProxyEngine fresh=new ProxyEngine(installer.binary(),data); engine=fresh;
+        ProxyEngine fresh=settings.privacy().fullDevice()?null:new ProxyEngine(installer.binary(),data); engine=fresh;
         try {
             connectionStage("Connecting","Starting your encrypted connection to "+server.countryName()+"…");
-            fresh.start(Map.of(ProxyEngine.PORT,server),this::log);
+            if(settings.privacy().fullDevice())tunnel.start(entry,server,settings.privacy().strictTunnel());
+            else if(entry!=null)fresh.startChain(entry,server,this::log);
+            else fresh.start(Map.of(ProxyEngine.PORT,server),this::log);
             connectionStage("Verifying connection","Checking HTTPS through "+server.countryName()+"…");
             long ms;
             try {ms=ProxyEngine.probe(ProxyEngine.PORT);}
-            catch(IOException e) {if(!Thread.currentThread().isInterrupted()){recordPerformance(server,ServerPerformance.failed());savePerformance();}throw new ServerConnectionFailure(e);}
+            catch(IOException e) {if(!Thread.currentThread().isInterrupted()){bootstrap.failed(entry==null?server:entry);recordPerformance(server,ServerPerformance.failed());savePerformance();}throw new ServerConnectionFailure(e);}
             checkCancelled();
             ServerPerformance saved=performance.snapshot().get(PerformanceCache.serverKey(server));
-            recordPerformance(server,saved!=null&&saved.successful()&&saved.hasQuality()?saved:ServerPerformance.verified(ms));savePerformance();
-            if(useSystem) {
+            if(entry==null&&!settings.privacy().fullDevice()){recordPerformance(server,saved!=null&&saved.successful()&&saved.hasQuality()?saved:ServerPerformance.verified(ms));savePerformance();}
+            if(useSystem&&!settings.privacy().fullDevice()) {
                 connectionStage("Applying system proxy","Setting up this device to use the verified connection…");
                 system.enable("127.0.0.1",ProxyEngine.PORT);
             }
-            checkCancelled(); connected=true;lastOperation="Connected";lastErrorCategory="None";
-            String detail=(useSystem?"System proxy":"Local proxy")+" · HTTPS "+(measured==null?ms:measured)+" ms";
+            checkCancelled(); connected=true;connectedServer=server;lastOperation="Connected";lastErrorCategory="None";
+            String detail=(settings.privacy().fullDevice()?"Full-device tunnel"+(settings.privacy().strictTunnel()?" · strict blocking":""):"Application Proxy Mode · "+(useSystem?"system settings":"local endpoint"))+(entry!=null?" · two hops":"")+" · HTTPS "+(measured==null?ms:measured)+" ms";
             ui(() -> {window.selectServer(server);window.setConnection("Connected",detail,true);});
-            log("Connected · "+server.displayName()+" · "+detail);
+            log("Connected · "+detail);
+            try {bootstrap.succeeded(entry==null?server:entry);saveCatalog(servers);}catch(IOException unavailable){log("Could not save the successful entry connection.");}
+            refreshCatalog();
         } catch(Exception e) {try{cleanup();}catch(Exception restoreFailure){restoreFailure.addSuppressed(e);throw restoreFailure;}throw e;}
     }
 
     @Override public void disconnect() {
         Future<?> running=task; if(running!=null&&!running.isDone()) running.cancel(true);
-        submit("Disconnecting", () -> {cleanup(); ui(() -> window.setConnection("Disconnected","Your previous proxy settings are restored.",false));log("Disconnected.");});
+        submit("Disconnecting", () -> {cleanup(); ui(() -> window.setConnection("Disconnected",DesktopTunnel.status().blocked()?"Disconnected. Strict blocking remains active; reconnect or Restore direct internet in Settings.":"Your previous application proxy settings are restored.",false));log("Disconnected.");});
     }
 
     private void cleanup() throws Exception {
@@ -417,13 +477,82 @@ public final class Main implements AppWindow.Actions {
         boolean interrupted=Thread.interrupted();
         try {
             system.restore();
-            connected=false;
+            connected=false;connectedServer=null;
+            tunnel.stop();
             ProxyEngine current=engine;if(current!=null){current.close();engine=null;}
         } catch(Exception e) {
-            ProxyEngine current=engine;connected=current!=null&&current.alive();
+            ProxyEngine current=engine;connected=(current!=null&&current.alive())||tunnel.isAlive();
             if(connected)ui(() -> window.setConnection("Recovery needed","The local proxy is still running. Retry Disconnect to restore system settings.",true));
             throw e;
         } finally {if(interrupted)Thread.currentThread().interrupt();}
+    }
+
+    private Server selectedEntry() throws IOException {
+        if(!settings.privacy().twoHop())return null;
+        return eligibleServers().stream().filter(server->PerformanceCache.serverKey(server).equals(settings.privacy().entryKey())).findFirst()
+                .orElseThrow(()->new IOException("Select an enabled entry server in Settings → Privacy & routing. Two-hop mode never falls back to a direct exit connection."));
+    }
+
+    private boolean confirmContact(Server server,Server entry) throws Exception {
+        if(!settings.privacy().contactDisclosure()&&!PublicEndpoints.manual(server))return true;
+        AtomicBoolean approved=new AtomicBoolean();
+        SwingUtilities.invokeAndWait(()->approved.set(window.confirmProxyContact(server,entry,settings.privacy().fullDevice(),settings.privacy().strictTunnel())));
+        return approved.get();
+    }
+
+    @Override public void testSelected(Server server) {
+        submit("Testing selected server",()->{
+            Server entry=selectedEntry();
+            if(!confirmContact(server,entry))return;
+            ensureEngine();
+            int port;
+            try(java.net.ServerSocket reservation=new java.net.ServerSocket(0,1,java.net.InetAddress.getLoopbackAddress())){port=reservation.getLocalPort();}
+            boolean viaCurrent=connected&&((engine!=null&&engine.alive())||tunnel.isAlive());
+            ServerPerformance measured;
+            try(ProxyEngine test=new ProxyEngine(installer.binary(),data)) {
+                if(viaCurrent)test.startViaLocalProxy(port,server,ProxyEngine.PORT,this::log);
+                else if(entry!=null)test.startChain(port,entry,server,this::log);
+                else test.start(Map.of(port,server),this::log);
+                measured=ConnectionQuality.measure(port);
+            }
+            if(!viaCurrent&&entry==null){recordPerformance(server,measured);savePerformance();}
+            String route=viaCurrent?"Through your current proxy connection":entry!=null?"Through the selected entry server":"Directly to this one selected proxy";
+            ui(()->JOptionPane.showMessageDialog(window,route+"\n"+measured.label()+((viaCurrent||entry!=null)?"\nRoute-specific results are not saved as direct-server rankings.":""),"Server check",JOptionPane.INFORMATION_MESSAGE));
+        });
+    }
+
+    @Override public void addManualProfile(String link) {
+        submit("Adding manual profile",()->{
+            Server server=ProxyLinks.parse("manual:"+java.util.UUID.randomUUID(),link,"","","",true);
+            if(!settings.allows(server))throw new IOException("Enable this protocol in Settings before adding it.");
+            java.util.LinkedHashMap<String,Server> all=new java.util.LinkedHashMap<>();
+            for(Server existing:servers)all.put(PerformanceCache.serverKey(existing),existing);
+            all.put(PerformanceCache.serverKey(server),server);
+            List<Server> updated=List.copyOf(all.values());saveCatalog(updated);showServers(updated);
+            log("Manual profile saved. It is contacted only when you choose Connect or Test.");
+        });
+    }
+
+    @Override public void eraseSavedData() {
+        cancelSpeedTests();catalogGeneration.incrementAndGet();
+        submit("Erasing saved data",()->{
+            IOException vaultFailure=null;
+            synchronized(catalogStorageLock){try{serverCache.erase();catalogPersistenceBlocked=false;}catch(IOException failure){vaultFailure=failure;}}
+            performance.replaceAll(Map.of());servers=List.of();bootstrap.erase();
+            proximity.resetConsent();nearbyCountry=null;
+            Files.deleteIfExists(data.resolve("server-performance.json"));Files.deleteIfExists(data.resolve("location-country.json"));
+            Files.deleteIfExists(data.resolve("tunnel-endpoints.json"));
+            ui(()->{window.clearPerformance();window.setServers(List.of());window.setSpeedTesting(false,"Saved profiles and test history erased");});
+            if(vaultFailure!=null)throw new IOException("Saved profile files and history were erased, but the OS credential key could not be removed. Unlock the credential store and retry Erase.");
+            log("Saved profiles, credential key, test history and approximate country cache erased. Current connection is unchanged.");
+        });
+    }
+
+    @Override public void restoreDirectInternet() {
+        submit("Restoring direct internet",()->{
+            cleanup();tunnel.release();
+            ui(()->window.setConnection("Disconnected","Direct internet is restored. Application proxy mode remains available.",false));
+        });
     }
 
     private void submit(String label,Throwing action) {
@@ -527,7 +656,7 @@ public final class Main implements AppWindow.Actions {
                 +"\nLast operation: "+lastOperation+"\nLast error category: "+lastErrorCategory
                 +"\nEngine ready: "+installer.ready()+"\nSystem proxy supported: "+system.isSupported()
                 +"\nSystem proxy enabled in settings: "+settings.systemProxy()
-                +"\nAutomatic testing: "+settings.automaticTesting()+"\nTesting active: "+speedTesting
+                +"\nPrivacy mode: "+settings.privacy().privateConnect()+"\nTraffic coverage: "+(settings.privacy().fullDevice()?"Full-device tunnel ("+DesktopTunnel.platform()+")":"Application Proxy Mode")+"\nTwo-hop routing: "+settings.privacy().twoHop()+"\nAutomatic testing: "+settings.bulkTestingAllowed()+"\nTesting active: "+speedTesting
                 +"\nNearby first: "+settings.nearbyFirst()+"\nServers: "+servers.size()
                 +"\nEnabled servers: "+eligibleServers().size()+"\nCached checks: "+results.size()
                 +"\nWorking cached servers: "+working
@@ -547,7 +676,7 @@ public final class Main implements AppWindow.Actions {
 
     private void releaseLock() {try {if(lock!=null&&lock.isValid())lock.release();if(lockChannel!=null)lockChannel.close();}catch(IOException ignored){}}
     private void checkCancelled() throws InterruptedException {if(closing.get()||Thread.currentThread().isInterrupted())throw new InterruptedException();}
-    private void log(String text) {ui(() -> window.appendLog(text));}
+    private void log(String text) {String redacted=text.replaceAll("(?i)[a-z][a-z0-9+.-]*://\\S+","[address omitted]");ui(() -> window.appendLog(redacted));}
     private void ui(Runnable callback) {if(!closing.get())SwingUtilities.invokeLater(callback);}
     static String safeMessage(Exception e) {String m=e.getMessage();return m==null?"The operation failed. Please try again.":m;}
     @FunctionalInterface private interface Throwing {void run() throws Exception;}

@@ -69,41 +69,41 @@ class AppUpdaterTest {
     }
     private AppUpdater.Release release(byte[] bytes) throws Exception {
         String checksum = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
-        return new AppUpdater.Release("0.3.0", "Moondrop", URI.create("https://github.com/Sipper1236/moondrop/releases/tag/v0.3.0"),
-            URI.create("https://github.com/Sipper1236/moondrop/releases/download/v0.3.0/moondrop.jar"), checksum);
+        return SigningFixtures.release(new AppUpdater.Release("0.3.0", "Moondrop", URI.create("https://github.com/Sipper1236/moondrop/releases/tag/v0.3.0"),
+            URI.create("https://github.com/Sipper1236/moondrop/releases/download/v0.3.0/moondrop.jar"), checksum));
     }
     @Test void stagesVerifiedJarAtomicallyAndLeavesNoTemporaryFiles() throws Exception {
         byte[] bytes = jar("xyz.shadowmere.desktop.Main", "0.3.0", true); List<String> progress = new ArrayList<>();
-        Path file = new AppUpdater(directory).stage(release(bytes), new ByteArrayInputStream(bytes), progress::add);
+        Path file = new AppUpdater(directory, SigningFixtures.KEY.getPublic()).stage(release(bytes), new ByteArrayInputStream(bytes), progress::add);
         assertEquals("moondrop-0.3.0.jar", file.getFileName().toString()); assertArrayEquals(bytes, Files.readAllBytes(file));
-        assertFalse(progress.isEmpty()); try (var files = Files.list(directory.resolve("updates"))) { assertEquals(1, files.count()); }
+        assertFalse(progress.isEmpty()); try (var files = Files.list(directory.resolve("updates"))) { assertEquals(3, files.count()); }
     }
     @Test void reusesStagedVerifiedUpdateWithoutANetworkRequest() throws Exception {
         byte[] bytes = jar("xyz.shadowmere.desktop.Main", "0.3.0", true);
-        var updater = new AppUpdater(directory); var release = release(bytes);
+        var updater = new AppUpdater(directory, SigningFixtures.KEY.getPublic()); var release = release(bytes);
         Path staged = updater.stage(release, new ByteArrayInputStream(bytes), ignored -> { });
         List<String> progress = new ArrayList<>();
         assertEquals(staged, updater.download(release, progress::add));
         assertEquals(List.of("Update already downloaded and verified"), progress);
         Files.write(staged, new byte[] {1, 2, 3});
-        assertFalse(AppUpdater.validCached(staged, release));
+        assertFalse(AppUpdater.validCached(staged, release, SigningFixtures.KEY.getPublic()));
     }
     @Test void checksumMismatchDiscardsTheDownload() throws Exception {
         byte[] bytes = jar("xyz.shadowmere.desktop.Main", "0.3.0", true);
-        var updater = new AppUpdater(directory);
+        var updater = new AppUpdater(directory, SigningFixtures.KEY.getPublic());
         IOException failure = assertThrows(IOException.class, () -> updater.stage(release(bytes), new ByteArrayInputStream(new byte[] {0}), ignored -> { }));
         assertTrue(failure.getMessage().contains("checksum")); assertUpdatesEmpty();
     }
     @Test void invalidJarOrMismatchedMetadataIsDiscardedDespiteValidChecksum() throws Exception {
         for (byte[] bytes : List.of(new byte[] {0, 1, 2}, jar("wrong.Main", "0.3.0", true),
             jar("xyz.shadowmere.desktop.Main", "0.2.0", true), jar("xyz.shadowmere.desktop.Main", "0.3.0", false))) {
-            IOException failure = assertThrows(IOException.class, () -> new AppUpdater(directory).stage(release(bytes), new ByteArrayInputStream(bytes), ignored -> { }));
+            IOException failure = assertThrows(IOException.class, () -> new AppUpdater(directory, SigningFixtures.KEY.getPublic()).stage(release(bytes), new ByteArrayInputStream(bytes), ignored -> { }));
             assertTrue(failure.getMessage().contains("valid Moondrop")); assertUpdatesEmpty();
         }
     }
     @Test void publicDownloadRejectsUntrustedManuallyConstructedMetadataBeforeNetwork() throws Exception {
         var release = new AppUpdater.Release("0.3.0", "", URI.create("https://evil.test"), URI.create("https://evil.test/v0.3.0/moondrop.jar"), "a".repeat(64));
-        assertThrows(IOException.class, () -> new AppUpdater(directory).download(release, ignored -> { }));
+        assertThrows(IOException.class, () -> new AppUpdater(directory, SigningFixtures.KEY.getPublic()).download(release, ignored -> { }));
         assertFalse(Files.exists(directory.resolve("updates")));
     }
     private void assertUpdatesEmpty() throws IOException {

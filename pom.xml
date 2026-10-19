@@ -1,9 +1,10 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>xyz.shadowmere</groupId><artifactId>moondrop</artifactId><version>0.7.2</version>
+  <groupId>xyz.shadowmere</groupId><artifactId>moondrop</artifactId><version>0.7.3</version>
   <name>Moondrop</name><description>An independent, minimal Shadowsocks desktop client.</description>
   <properties><maven.compiler.release>17</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
   <dependencies>
+    <dependency><groupId>net.java.dev.jna</groupId><artifactId>jna-platform</artifactId><version>5.19.1</version></dependency>
     <dependency><groupId>com.formdev</groupId><artifactId>flatlaf</artifactId><version>3.6.1</version></dependency>
     <dependency><groupId>com.formdev</groupId><artifactId>flatlaf-extras</artifactId><version>3.6.1</version></dependency>
     <dependency><groupId>com.google.code.gson</groupId><artifactId>gson</artifactId><version>2.13.2</version></dependency>
@@ -11,7 +12,7 @@
     <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.13.4</version><scope>test</scope></dependency>
   </dependencies>
   <build><finalName>moondrop</finalName>
-    <resources><resource><directory>src/main/resources</directory></resource><resource><directory>${project.basedir}</directory><targetPath>META-INF/shadowmere</targetPath><includes><include>LICENSE</include><include>THIRD_PARTY.md</include></includes></resource></resources>
+    <resources><resource><directory>${project.basedir}</directory><targetPath>META-INF/moondrop</targetPath><includes><include>scripts/linux-tunnel-helper.py</include><include>scripts/macos-tunnel-helper.py</include><include>scripts/windows-tunnel-helper.ps1</include></includes></resource><resource><directory>src/main/resources</directory></resource><resource><directory>${project.basedir}</directory><targetPath>META-INF/shadowmere</targetPath><includes><include>LICENSE</include><include>THIRD_PARTY.md</include></includes></resource></resources>
     <plugins>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.0</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.3</version></plugin>
@@ -21,7 +22,7 @@
       <transformers>
         <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer"><resource>META-INF/LICENSE.txt</resource></transformer>
         <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer"><resource>META-INF/NOTICE.txt</resource></transformer>
-        <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"><mainClass>xyz.shadowmere.desktop.Main</mainClass><manifestEntries><Implementation-Version>${project.version}</Implementation-Version></manifestEntries></transformer>
+        <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"><mainClass>xyz.shadowmere.desktop.Main</mainClass><manifestEntries><Implementation-Version>${project.version}</Implementation-Version><Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access></manifestEntries></transformer>
       </transformers>
     </configuration></execution></executions></plugin>
   </plugins></build>

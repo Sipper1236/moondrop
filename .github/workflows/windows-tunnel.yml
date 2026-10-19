@@ -1,0 +1,48 @@
+name: Windows tunnel security
+on:
+  pull_request:
+    paths:
+      - 'scripts/windows-tunnel-helper.ps1'
+      - 'scripts/test-windows-tunnel.ps1'
+      - 'scripts/inspect-windows-udp-capture.py'
+      - 'scripts/test-windows-udp-capture.py'
+      - '.github/workflows/windows-tunnel.yml'
+  push:
+    paths:
+      - 'scripts/windows-tunnel-helper.ps1'
+      - 'scripts/test-windows-tunnel.ps1'
+      - 'scripts/inspect-windows-udp-capture.py'
+      - 'scripts/test-windows-udp-capture.py'
+      - '.github/workflows/windows-tunnel.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify NIC evidence reader catches a real DNS query
+        run: python scripts/test-windows-udp-capture.py
+      - name: Parse broker, compile WFP ABI, and reject unsafe profiles
+        shell: powershell
+        run: ./scripts/test-windows-tunnel.ps1
+      - name: Smoke test verified helper installation and private ACLs
+        shell: powershell
+        run: ./scripts/test-windows-tunnel.ps1 -InstallationIntegration
+      - name: Test persistent fail-closed IPv4, IPv6, UDP and explicit recovery
+        shell: powershell
+        # This runner is disposable. The test installs persistent WFP filters for
+        # a few seconds and removes ONLY Moondrop filters in a finally block.
+        run: ./scripts/test-windows-tunnel.ps1 -FirewallIntegration
+        env:
+          MOONDROP_WINDOWS_CAPTURE_DIR: ${{ runner.temp }}/moondrop-windows-nic-captures
+      - name: Retain NIC DNS diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-tunnel-nic-dns-evidence
+          path: ${{ runner.temp }}/moondrop-windows-nic-captures
+          if-no-files-found: ignore
+          retention-days: 7

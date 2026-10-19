@@ -10,15 +10,15 @@ A small, independent Java desktop client for protected Shadowsocks, VLESS, Troja
 
 ## Android
 
-[Download Moondrop for Android](https://github.com/Sipper1236/moondrop/releases/tag/android-v0.1.1) (Android 8.0+). Native Java interface, encrypted VPN, cached servers, Quick Connect, country flags, and protocol settings. No Java installation is needed on your phone. See [Android installation and build instructions](android/README.md).
+[Download Moondrop for Android](https://github.com/Sipper1236/moondrop/releases/tag/android-v0.1.1) (Android 8.0+). Native Java interface, encrypted VPN, cached servers, Quick Connect, country flags, protocol settings, and signed-update checks. No Java installation is needed on your phone. See [Android installation and build instructions](android/README.md).
 
 ## Install
 
-Download from the [Moondrop v0.7.2 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.2), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
+Download from the [Moondrop v0.7.3 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.3), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
 
 ### Windows installer
 
-1. Under **Assets**, download **Moondrop-0.7.2-Windows-x64.exe** for a Windows x64 PC.
+1. Under **Assets**, download **Moondrop-0.7.3-Windows-x64.exe** for a Windows x64 PC.
 2. Run the installer. It installs for your user account and creates Start menu and desktop shortcuts.
 3. Open **Moondrop** from either shortcut.
 
@@ -27,7 +27,7 @@ This release is unsigned. Windows SmartScreen or Microsoft Defender may warn abo
 ### macOS installer
 
 1. Open Apple menu → **About This Mac** to check your chip.
-2. Download **Moondrop-0.7.2-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.7.2-macOS-x64.dmg** for Intel.
+2. Download **Moondrop-0.7.3-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.7.3-macOS-x64.dmg** for Intel.
 3. Open the DMG and drag **Moondrop.app** into **Applications**. If that folder is not writable by your account, use `~/Applications` instead.
 4. Open Moondrop from Applications, then eject the installer disk.
 
@@ -120,7 +120,7 @@ java -version
 
 #### 2. Download the portable archive
 
-1. Open the [Moondrop v0.7.2 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.2). This is a prerelease.
+1. Open the [Moondrop v0.7.3 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.3). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 
@@ -159,7 +159,7 @@ For a portable launch without installing a shortcut, run `chmod +x launch-linux.
 
 ### Connect
 
-New and expired checks run **nearby first**: your approximate country comes from a direct HTTPS lookup at [IPWHOIS](https://ipwhois.io/documentation), cached locally for 24 hours. Only the country code and lookup time are saved. Moondrop compares reported server countries using country-center distances; unknown locations come last. If lookup fails, Moondrop reuses the saved country; without one, testing continues without a distance preference. A VPN or upstream proxy can affect the detected country. To override it, launch with an ISO country code, for example `java -Dmoondrop.country=CA -jar moondrop.jar`. This changes test order; measured reliability, median HTTPS latency, and a bounded download estimate decide the best tested connection.
+Nearby-first ordering uses a manual country preference, or an optional approximate-country lookup. **No IP geolocation request is made unless you enable Settings → Privacy & routing → Detect my approximate country.** That option sends a direct HTTPS request to IPWHOIS at `ipwho.is`, which receives your public IP; only country and lookup time are cached for 24 hours. Manual country selection and `-Dmoondrop.country=CA` require no lookup and override detection. Disabling detection does not break Connect. Country-center distances affect test order; measured connection quality determines ranking.
 
 Moondrop imports protected proxy connections from [Shadowmere](https://shadowmere.xyz/), [GFP](https://github.com/gfpcom/free-proxy-list), [V2rayCollector](https://github.com/MhdiTaheri/V2rayCollector), [Morpheus](https://github.com/morpheusadam/v2ray-config), [V2RayAggregator](https://github.com/mahdibland/V2RayAggregator), and [Epodonios](https://github.com/Epodonios/v2ray-configs). Supported profiles are **encrypted Shadowsocks**, **VLESS with verified TLS or REALITY**, **Trojan with TLS**, **Hysteria2 with TLS**, and **TUIC with TLS**. Plain HTTP/SOCKS proxies, plaintext VLESS, profiles disabling TLS verification, VMess, and unsupported plugins, transports, or ciphers are excluded.
 
@@ -181,13 +181,55 @@ On **Linux**, configure your browser or application's proxy manually: choose **H
 
 Click **Disconnect** when finished. Close Moondrop normally so it can restore any system proxy settings it changed.
 
+### Optional privacy and routing
+
+Settings → **Privacy & routing** keeps these controls separate from the default simple connection workflow:
+
+The desktop panel includes **Simple connection preset** and **One-server privacy preset**, plus individual switches. Presets apply only after **Save options** and preserve your saved-credential protection choice. The simple preset enables automatic tests and single-hop Application Proxy Mode, and disables country detection and contact prompts. The privacy preset disables automatic testing and country detection, and enables one-server attempts with contact prompts; it preserves your chosen route. Strict blocking already active still requires **Restore direct internet** to release it.
+
+| Control | Desktop | Android |
+| --- | --- | --- |
+| Automatic server testing | Optional | Optional |
+| One-server privacy mode | Optional | Optional |
+| Ask before contacting a proxy | Optional | Optional |
+| Approximate country detection | Opt-in IPWHOIS lookup | No IP lookup; manual/device region only |
+| Manual preferred country | Optional | Optional |
+| Protect saved credentials | Optional OS-backed encryption | Always encrypted with Android Keystore |
+| Full-device routing | Optional Linux tunnel; experimental Windows/macOS backends | Device VPN |
+| Strict disconnect blocking | Optional nftables / WFP / PF control, depending on OS | Optional Android Always-on/Block without VPN setting |
+| Two-hop routing | Optional | Optional, supported TCP exits |
+| Automatic update checks | Optional | Optional; manual checks remain available |
+
+Untrusted-feed address checks, supported encryption, TLS certificate verification and update authentication are enforced independently of privacy options. CI dependency checks, SBOM generation and publisher release signing are build/release processes rather than user toggles. Windows installer signing and macOS notarization still require publisher identities.
+
+- **Privacy mode** reuses cached ranking and attempts one server per explicit Connect action. It pauses background scans and does not silently try other operators after failure. A disclosure explains the selected operator's visibility before connecting. **Ask before contacting a proxy** enables the same single-attempt consent boundary without requiring the main Privacy-mode toggle. Ordinary automatic testing remains available when these options are off; contacted operators can see your connecting IP.
+- **Test selected server only** makes an intentional HTTPS check. When a connection is already active, desktop tests use its local SOCKS endpoint as the detour to the new candidate. Route-specific measurements are not saved as direct-server rankings.
+- **Manual country** and optional IPWHOIS detection control proximity; no detection occurs by default.
+- **Protect saved credentials** encrypts desktop reusable profiles with AES-256-GCM and stores its key with Linux Secret Service (`secret-tool`), macOS Keychain, or Windows CurrentUser DPAPI. Non-secret endpoint metadata stays separate. This optional setting needs a working, unlocked OS store and fails clearly rather than falling back to plaintext. A locked/damaged catalog is preserved while fresh feeds remain usable in memory. Without this option, private profile files still contain reconnect credentials. Android uses Android Keystore encryption automatically.
+- **Two-hop routing** implements an actual sing-box exit detour through the selected entry, with no direct fallback. Choose an entry from the main server list in Privacy & routing, then Connect chooses a different exit. Bulk testing is paused while two-hop mode is enabled. Entry sees your connecting IP; exit receives traffic from the entry. Independent operators are not verified, collusion/correlation remains possible, and HTTPS is still needed. Android currently supports a Shadowsocks entry with Shadowsocks, VLESS or Trojan exits.
+- **Erase saved profiles and test history** removes the stored catalog, reusable key where available, measurements, country cache, and Linux endpoint pins. It leaves an active connection running. A failed OS-key deletion is reported separately while other history is still cleared.
+
+Public feeds are untrusted. Remote profiles cannot nominate loopback, private/LAN, link-local, multicast, unspecified or other non-public addresses. DNS answers are validated again before connecting, and the core receives a pinned validated address while retaining its TLS server name. Only explicit **manual profiles**, added with a warning, can use private endpoints. Modern authenticated Shadowsocks ciphers and certificate verification remain mandatory; these are not switches for allowing unsafe feeds or disabling TLS.
+
+Privacy mode reduces unnecessary proxy contacts; it does not stop ordinary subscription and update requests to their providers. These options do not make a public proxy operator trustworthy or guarantee censorship bypass.
+
+### Traffic coverage
+
+The default desktop mode is **Application Proxy Mode**. System proxy settings on Windows/macOS cover compatible applications; applications that ignore them can connect directly. A loopback SOCKS listener is not a full-device VPN.
+
+**Windows and macOS full-device modes** are selectable in **Settings → Privacy & routing → Full-device tunnel**, with a separate **Keep internet blocked when the tunnel disconnects** switch. They are experimental: the implementations, offline validation and native CI jobs are present, but real traffic/leak/crash testing on these operating systems has not yet been completed on this Linux development host. Application Proxy Mode remains the default. Windows uses an elevated, pinned engine and persistent WFP rules; macOS uses a root-owned Python broker, utun, encrypted DNS, and a dedicated PF anchor. Administrator approval is required. macOS also requires a trusted root-owned Python 3 installation and refuses incompatible PF layouts. See [Windows tunnel setup and recovery](WINDOWS-TUNNEL.md) and [macOS tunnel setup and recovery](MACOS-TUNNEL.md). **Disconnect retains strict blocking; Restore direct internet explicitly releases it.** Windows persistent blocks can survive reboot; macOS PF blocks are cleared by reboot.
+
+**Linux x64 full-device mode** is optional and requires nftables, iproute2, PolicyKit and `/dev/net/tun`. It installs an administrator-owned broker and a checksum-pinned networking engine, then manages TUN routing and encrypted DNS. **Keep internet blocked when the tunnel disconnects** adds a separate persistent-in-session firewall. A stopped engine, app crash, or removed TUN leaves ordinary direct traffic blocked. Use **Restore direct internet** explicitly to release it. Enabling it can prompt for administrator authorization; no host firewall changes are performed by ordinary startup or the tests. See [Linux tunnel setup, limits, and recovery](scripts/LINUX-TUNNEL.md).
+
+Windows/macOS desktop full-device routing is not implemented in this first Linux-focused version. Android uses its VPN service; after connecting once, its **Device VPN & strict blocking** setting opens Android's VPN settings for **Always-on VPN** and **Block connections without VPN**. Android enforces this blocking, and Moondrop restores only its exact approved pinned route. Moondrop itself is excluded for transport/feed access. Device-specific lockdown and handover behavior still needs physical-device coverage.
+
 ### Automatic updates
 
 Moondrop checks this project's GitHub releases in the background at launch and every six hours. **Check for updates** retries manually. An unavailable update service does not block browsing or connections. Updates follow published preview releases as well as regular releases.
 
 **Windows and macOS installer editions:** when **Download update** appears, click it to open the official release page. Download the installer for your platform and chip, disconnect and close Moondrop, then install the new version. On macOS, replace the existing app in the folder where you installed it. The full installer updates the app and its bundled Java together. Saved settings and connection results remain in the data folder below.
 
-**Portable ZIP/JAR edition:** a newer JAR downloads automatically and is verified against the release's SHA-256 checksum and application version. A verified staged download is reused across launches. When **Restart to update** appears, click it when convenient. Moondrop restores proxy settings, closes its engines, waits for the app to exit, replaces the JAR, and restarts using your separately installed Java. It keeps `moondrop.jar.previous` beside the JAR as a backup. This updater does not update your separate Java installation.
+**Portable ZIP/JAR edition:** a newer JAR downloads automatically and is authenticated against an Ed25519-signed release manifest, its SHA-256 digest, and application version. The trusted publisher key is embedded in the app; a replacement JAR and checksum alone are rejected. A verified staged download is reused across launches. When **Restart to update** appears, click it when convenient. Moondrop restores proxy settings, closes its engines, waits for the app to exit, replaces the JAR, and restarts using your separately installed Java. It keeps `moondrop.jar.previous` beside the JAR as a backup. This updater does not update your separate Java installation.
 
 Portable updates require a writable app folder; move the extracted folder somewhere you own if needed. If an update cannot install or launch, the helper keeps/restores the previous app. Logs are in the `updates` subfolder of the data folder below. You can also close Moondrop and rename `moondrop.jar.previous` back to `moondrop.jar` for manual rollback. Older portable releases without the updater need one manual upgrade.
 
@@ -198,6 +240,7 @@ Portable updates require a writable app folder; move the extracted folder somewh
 - **Double-clicking the JAR does nothing:** use the platform launcher or `java -jar moondrop.jar` in a terminal. A JAR file association is not required.
 - **Cannot find `moondrop.jar`:** extract the whole ZIP and keep the launcher beside the JAR. Run the command from that folder.
 - **No display / `HeadlessException` on Linux:** use a graphical desktop session and install the desktop JRE listed above.
+- **Connecting from a censored network:** saved servers appear before feed downloads finish. Quick Connect first tries a small history of servers that actually established an entry connection on this device; benchmark results alone never enter that history. Proven entries remain saved even if a feed temporarily omits them. After connecting, feed refreshes travel through the active proxy without falling back to direct downloads. Background direct speed scans pause while connected; use Test selected server for a check through your current connection. Past success is a preference, not a reachability guarantee, especially after changing networks. At least one entry must still be reachable directly. You can import a server link offline in Settings → Privacy & routing.
 - **First connection fails:** check that your internet connection can reach GitHub for the engine download, then retry. Public servers can also go offline; refresh the list and try Quick Connect again.
 - **Connection was interrupted and the system proxy is stuck:** reopen Moondrop and use **Disconnect** so it can recover the saved settings.
 
@@ -228,7 +271,7 @@ These older Shadowmere folder names are retained for compatibility and proxy rec
 4. System proxy is enabled by default on macOS and Windows for compatible apps. Change the default in Settings. Linux uses the local proxy: configure apps to use HTTP or SOCKS5 at `127.0.0.1:17890`. Advanced mode reveals the per-connection proxy control.
 5. **Disconnect** restores the previous system proxy settings and stops this app's engine.
 
-This is an application proxy, not a VPN or TUN tunnel. Apps that ignore system proxy settings are not covered. macOS may require network-settings permission. On Windows this configures the current user's Internet Settings, not WinHTTP. Corporate policy, automatic discovery, and applications with their own proxy settings can override it. Local mode never modifies OS proxy settings. Public proxy operators control their servers; availability and trust vary. HTTPS certificate validation stays enabled.
+The default Application Proxy Mode covers compatible apps; optional full-device modes and their platform validation limits are described above. Apps ignoring application proxy settings are not covered in Application Proxy Mode. macOS may require network-settings permission. On Windows this configures the current user's Internet Settings, not WinHTTP. Corporate policy, automatic discovery, and applications with their own proxy settings can override it. Local mode never modifies OS proxy settings. Public proxy operators control their servers; availability and trust vary. HTTPS certificate validation stays enabled.
 
 ## Quick Connect
 
@@ -279,7 +322,7 @@ mvn package
 ./scripts/package-windows.ps1
 ```
 
-The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.7.2-Windows-x64.exe`, `Moondrop-0.7.2-macOS-arm64.dmg`, and `Moondrop-0.7.2-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
+The native scripts bundle the runtime and set `moondrop.distribution=native`, so update checks offer the full installer instead of replacing the installed app's JAR. macOS builds use the build machine's architecture; build once on Apple Silicon and once on Intel. Release asset names are `Moondrop-0.7.3-Windows-x64.exe`, `Moondrop-0.7.3-macOS-arm64.dmg`, and `Moondrop-0.7.3-macOS-x64.dmg`. These installers are unsigned; macOS packages are not notarized.
 
 GitHub Actions builds the three native installers and portable downloads, and tests the native networking engine on Linux, macOS Apple Silicon, macOS Intel, and Windows. The sing-box engine downloads separately on first connection.
 
@@ -327,3 +370,5 @@ In **Settings → Advanced mode → Protocols**, toggle Shadowsocks, VLESS (incl
 Protocol descriptions follow the [Shadowsocks documentation](https://shadowsocks.org/doc/what-is-shadowsocks.html), [sing-box VLESS settings](https://sing-box.sagernet.org/configuration/outbound/vless/), [REALITY documentation](https://xtls.github.io/en/config/transports/reality.html), [Trojan overview](https://trojan-gfw.github.io/trojan/overview.html), [Hysteria 2 documentation](https://v2.hysteria.network/docs/advanced/Full-Client-Config/), and [sing-box TUIC settings](https://sing-box.sagernet.org/configuration/outbound/tuic/).
 
 The release workflow also runs the updater integrity, replacement, restart and rollback tests with the Java runtime inside each Windows and macOS package. It checks that native launchers select full-installer updates. Portable update fixtures use paths containing spaces and Unicode characters.
+
+Publisher signature format, key handling, build inventories/provenance and reproducibility limitations: [Release security](scripts/RELEASE-SECURITY.md). Windows Authenticode and macOS notarization require publisher identities and are not yet available.

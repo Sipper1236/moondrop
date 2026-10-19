@@ -29,6 +29,16 @@ public final class ServerProximity {
         this.file = data.resolve("location-country.json"); this.transport = transport; this.clock = clock;
     }
 
+    /** Consent boundary: no transport call, including refresh, without explicit opt-in. */
+    public synchronized Optional<String> locate(boolean consent,String manualCountry) {
+        String manual=normalize(manualCountry);
+        if(manual!=null)return Optional.of(manual);
+        String override=normalize(System.getProperty("moondrop.country"));
+        if(override!=null)return Optional.of(override);
+        return consent?locate():Optional.empty();
+    }
+    public synchronized void resetConsent(){attempted=false;located=Optional.empty();}
+
     /** One lookup per instance; valid overrides and fresh country caches require no request. */
     public synchronized Optional<String> locate() {
         String override = normalize(System.getProperty("moondrop.country"));

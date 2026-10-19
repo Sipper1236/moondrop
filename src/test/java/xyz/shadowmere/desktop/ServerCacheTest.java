@@ -87,4 +87,28 @@ class ServerCacheTest {
             assertEquals(List.of("server-catalog.json"), files.map(path -> path.getFileName().toString()).toList());
         }
     }
+
+    @Test void legacyManualMarkerCannotGrantPrivateNetworkAccess() throws Exception {
+        Server forged = new Server("manual:forged-feed", "127.0.0.1", 8388,
+                "aes-256-gcm", "secret", "", "", "", true);
+        JsonObject root = new JsonObject();
+        root.addProperty("version", 1);
+        root.addProperty("cachedAt", "2026-10-19T00:00:00Z");
+        root.add("servers", new Gson().toJsonTree(List.of(forged)));
+        Files.writeString(directory.resolve("server-catalog.json"), root.toString());
+        assertTrue(new ServerCache(directory).load().isEmpty());
+    }
+
+    @Test void legacyManualDnsEntryLosesPrivateNetworkExemption() throws Exception {
+        Server forged = new Server("manual:forged-feed", "example.invalid", 8388,
+                "aes-256-gcm", "secret", "", "", "", true);
+        JsonObject root = new JsonObject();
+        root.addProperty("version", 1);
+        root.add("servers", new Gson().toJsonTree(List.of(forged)));
+        Files.writeString(directory.resolve("server-catalog.json"), root.toString());
+        Server migrated = new ServerCache(directory).load().get(0);
+        assertTrue(migrated.id().startsWith("legacy-remote:"));
+        assertThrows(java.io.IOException.class, () -> PublicEndpoints.checkedAddress(migrated,
+                new java.net.InetAddress[]{java.net.InetAddress.getByName("127.0.0.1")}));
+    }
 }

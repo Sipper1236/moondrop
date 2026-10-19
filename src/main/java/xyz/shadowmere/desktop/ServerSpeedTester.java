@@ -18,9 +18,10 @@ public final class ServerSpeedTester {
     private final Backend backend;
     public ServerSpeedTester() { this(new Backend() {
         public boolean reachable(Server server) throws Exception {
+            InetAddress address = PublicEndpoints.resolve(server);
             if(server.usesUdpTransport())return true; // QUIC is verified by the HTTPS path, never a TCP handshake.
             try (Socket socket = new Socket()) {
-                socket.connect(new InetSocketAddress(server.host(), server.port()), 1200); return true;
+                socket.connect(new InetSocketAddress(address, server.port()), 1200); return true;
             }
         }
         public AutoCloseable start(Path binary, Path directory, Map<Integer,Server> bindings) throws Exception {

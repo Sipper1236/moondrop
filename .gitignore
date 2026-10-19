@@ -9,7 +9,7 @@
 /android/.native-build/
 /android/build/
 /android/app/build/
-/android/app/libs/*.aar
+/android/app/libs/
 /android/local.properties
 *.jks
 *.keystore

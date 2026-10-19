@@ -15,8 +15,8 @@ class ServerTest {
         assertEquals("Canada",s.countryName());assertFalse(s.toString().contains("secret"));
     }
     @Test void acceptsLegacyWholeLinkAndIpv6() {
-        Server s=parse("ss://"+b64("aes-256-gcm:key@[2001:db8::1]:443"));
-        assertEquals("2001:db8::1",s.host());assertEquals("aes-256-gcm",s.method());
+        Server s=parse("ss://"+b64("aes-256-gcm:key@[2606:4700:4700::1111]:443"));
+        assertEquals("2606:4700:4700::1111",s.host());assertEquals("aes-256-gcm",s.method());
     }
     @Test void decodesPercentEscapedAuthWithoutChangingPlus() {
         assertEquals("a+b:c",parse("ss://aes-256-gcm:a+b%3Ac@host.test:443").password());
@@ -29,7 +29,7 @@ class ServerTest {
         assertThrows(IllegalArgumentException.class,()->parse("https://host.test"));
     }
     @Test void rejectsUnencryptedAndUnsupportedMethodsFromAnySource() {
-        for(String method:new String[]{"none","dummy","chacha20","unknown"})
+        for(String method:new String[]{"none","dummy","chacha20","unknown","rc4-md5","aes-128-cfb","aes-256-ctr","chacha20-ietf"})
             assertFalse(Server.supportsEncryptedMethod(method));
     }
     @Test void outboundCannotBeReplacedWithPlaintextOrDirectRouting() {

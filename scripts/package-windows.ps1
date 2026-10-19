@@ -15,7 +15,7 @@ foreach ($path in @('target/native-runtime','target/native-input','target/native
     if (Test-Path $path) { Remove-Item -Recurse -Force $path }
 }
 foreach ($path in @('target/native-input','target/native-icons','target/native-image','target/native-installer','dist')) { New-Item -ItemType Directory -Force $path | Out-Null }
-Copy-Item 'target/moondrop.jar','README.md','INSTALL.md','LICENSE','THIRD_PARTY.md' -Destination 'target/native-input'
+Copy-Item 'target/moondrop.jar','README.md','INSTALL.md','LICENSE','THIRD_PARTY.md','WINDOWS-TUNNEL.md','MACOS-TUNNEL.md' -Destination 'target/native-input'
 Invoke-Checked (Join-Path $jdkBin 'jlink.exe') @('--add-modules','java.se,jdk.crypto.ec,jdk.unsupported','--strip-debug','--no-header-files','--no-man-pages','--output','target/native-runtime')
 Invoke-Checked (Join-Path $jdkBin 'java.exe') @('-Djava.awt.headless=true','--class-path','target/moondrop.jar','scripts/DesktopIcons.java','moondrop.svg','target/native-icons')
 Invoke-Checked (Join-Path $jdkBin 'jpackage.exe') @('--type','app-image','--name','Moondrop','--app-version',$version,'--vendor','rayyan',

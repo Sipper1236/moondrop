@@ -17,50 +17,57 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with: { distribution: temurin, java-version: '17' }
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.25.5', cache: false }
-      - uses: actions/cache@v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with: { go-version: '1.26.9', cache: false }
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: android-libbox-v1.14.3-${{ hashFiles('android/native/bridge.go', 'android/native/build.sh') }}
-          restore-keys: android-libbox-v1.14.3-
-      - uses: android-actions/setup-android@v3
+          key: android-libbox-v1.14.3-security-${{ hashFiles('android/native/bridge.go', 'android/native/build.sh', 'android/native/security-patch.json', 'android/native/security-go.mod', 'android/native/security-go.sum', 'scripts/engine-security-patch.sh') }}
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with: { packages: 'platform-tools' }
       - name: Install pinned Android NDK
         run: |
           sdkmanager 'ndk;28.0.13004108' 'platforms;android-26' 'platforms;android-36' 'build-tools;35.0.0'
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.0.13004108" >> "$GITHUB_ENV"
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: native-aar
         with:
-          path: android/app/libs/moondrop-engine.aar
+          path: |
+            android/app/libs/moondrop-engine.aar
+            android/app/libs/moondrop-engine.packages.txt
           key: android-aar-${{ runner.os }}-${{ hashFiles('android/native/**') }}
       - name: Build protected networking engine from source
         if: steps.native-aar.outputs.cache-hit != 'true'
         run: bash android/native/build.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Moondrop-Android-engine
-          path: android/app/libs/moondrop-engine.aar
+          path: |
+            android/app/libs/moondrop-engine.aar
+            android/app/libs/moondrop-engine.packages.txt
           if-no-files-found: error
   app:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     needs: engine
     if: ${{ !inputs.native_only }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with: { distribution: temurin, java-version: '17' }
-      - uses: gradle/actions/setup-gradle@v4
-      - uses: actions/download-artifact@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with: { name: Moondrop-Android-engine, path: android/app/libs }
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with: { packages: 'platform-tools' }
       - name: Install SDK platform
         run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
@@ -78,18 +85,34 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Test native traffic, cached UI, and actual VPN routing
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 35
           arch: x86_64
           target: default
           disable-animations: true
           script: bash android/scripts/test-device.sh /tmp/sing-box-1.14.3-linux-amd64/sing-box
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with: { go-version: '1.26.9', cache: false }
+      - name: Record Android software inventory
+        run: python3 scripts/android-sbom.py
+      - name: Reject high-severity vulnerable dependencies
+        run: python3 scripts/check-vulnerabilities.py android/app/build/outputs/moondrop-sbom.json
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        if: github.event_name == 'push'
+        with:
+          subject-path: android/app/build/outputs/apk/release/*.apk
+      - uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34
+        if: github.event_name == 'push'
+        with:
+          subject-path: android/app/build/outputs/apk/release/*.apk
+          sbom-path: android/app/build/outputs/moondrop-sbom.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: Moondrop-Android-APK
           path: |
+            android/app/build/outputs/moondrop-sbom.json
             android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/apk/release/*.apk
             android/app/build/reports/lint-results-debug.html

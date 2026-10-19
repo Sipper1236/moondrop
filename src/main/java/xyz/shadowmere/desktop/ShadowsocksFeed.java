@@ -21,21 +21,26 @@ public final class ShadowsocksFeed {
     private final String prefix;
     private final boolean protectedProtocols;
 
-    public static ShadowsocksFeed gfp() {
-        return new ShadowsocksFeed(URI.create("https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/ss.txt"), "gfp:");
+    public static ShadowsocksFeed gfp() {return gfp(ServerCatalog.feedClient(0));}
+    static ShadowsocksFeed gfp(HttpClient client) {
+        return new ShadowsocksFeed(URI.create("https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/ss.txt"), "gfp:",false,client);
     }
-    public static ShadowsocksFeed collector() {
-        return new ShadowsocksFeed(URI.create("https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/ss"), "collector:");
+    public static ShadowsocksFeed collector() {return collector(ServerCatalog.feedClient(0));}
+    static ShadowsocksFeed collector(HttpClient client) {
+        return new ShadowsocksFeed(URI.create("https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/ss"), "collector:",false,client);
     }
-    public static ShadowsocksFeed morpheus() {
-        return new ShadowsocksFeed(URI.create("https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt"), "morpheus:");
+    public static ShadowsocksFeed morpheus() {return morpheus(ServerCatalog.feedClient(0));}
+    static ShadowsocksFeed morpheus(HttpClient client) {
+        return new ShadowsocksFeed(URI.create("https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt"), "morpheus:",false,client);
     }
     public static ShadowsocksFeed protectedFeed(URI endpoint,String prefix) {return new ShadowsocksFeed(endpoint,prefix,true);}
+    static ShadowsocksFeed protectedFeed(URI endpoint,String prefix,HttpClient client) {return new ShadowsocksFeed(endpoint,prefix,true,client);}
     private ShadowsocksFeed(URI endpoint,String prefix) {this(endpoint,prefix,false);}
     private ShadowsocksFeed(URI endpoint, String prefix, boolean protectedProtocols) {
+        this(endpoint,prefix,protectedProtocols,ServerCatalog.feedClient(0));
+    }
+    ShadowsocksFeed(URI endpoint,String prefix,boolean protectedProtocols,HttpClient client) {
         this.prefix=prefix;this.protectedProtocols=protectedProtocols;
-        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
-            .followRedirects(HttpClient.Redirect.NORMAL).build();
         transport = () -> {
             HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(20))
                 .header("User-Agent", "Moondrop").header("Accept", "text/plain").GET().build();
@@ -107,6 +112,7 @@ public final class ShadowsocksFeed {
                 Server parsed = protectedProtocols?ProxyLinks.parse("",connection,"","","",true):Server.parse("", connection, "", "", "", true);
                 if (parsed.protocol().equals("shadowsocks")&&!Server.supportsEncryptedMethod(parsed.method())) { unsupported++; continue; }
                 if (parsed.protocol().equals("shadowsocks")&&!validKey(parsed)) { malformed++; continue; }
+                PublicEndpoints.requirePublicLiteral(parsed);
                 String key = PerformanceCache.serverKey(parsed);
                 if (unique.containsKey(key)) { duplicates++; continue; }
                 String label = fragmentAt < 0 ? "" : URLDecoder.decode(line.substring(fragmentAt + 1).replace("+", "%2B"), StandardCharsets.UTF_8);

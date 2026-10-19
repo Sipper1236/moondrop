@@ -9,8 +9,9 @@ import java.util.*;
 
 public final class ShadowmereApi {
     private static final URI ENDPOINT = URI.create("https://shadowmere.xyz/api/proxies/?is_active=true&page_size=200");
-    private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(12))
-            .followRedirects(HttpClient.Redirect.NORMAL).build();
+    private final HttpClient client;
+    public ShadowmereApi() {this(ServerCatalog.feedClient(0));}
+    ShadowmereApi(HttpClient client) {this.client=Objects.requireNonNull(client);}
 
     public List<Server> fetch() throws Exception {
         LinkedHashMap<String, Server> servers = new LinkedHashMap<>();
@@ -35,8 +36,9 @@ public final class ShadowmereApi {
                 JsonObject row = element.getAsJsonObject();
                 try {
                     if (row.has("is_active") && !row.get("is_active").getAsBoolean()) continue;
-                    Server server = Server.parse(str(row, "id"), str(row, "url"), str(row, "location_country_code"),
+                    Server server = Server.parse("shadowmere:" + str(row, "id"), str(row, "url"), str(row, "location_country_code"),
                             str(row, "location"), str(row, "last_checked"), true);
+                    PublicEndpoints.requirePublicLiteral(server);
                     if (!Server.supportsEncryptedMethod(server.method())) continue;
                     servers.putIfAbsent(PerformanceCache.serverKey(server), server);
                 } catch (IllegalArgumentException ignored) { /* Unsupported entries do not hide the usable list. */ }

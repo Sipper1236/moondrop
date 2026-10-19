@@ -30,6 +30,9 @@ class ServerCatalogTest {
         var result=catalog.fetch();assertEquals(1,result.servers().size());assertTrue(cancelled.await(1,TimeUnit.SECONDS));
         assertEquals(List.of("slow is unavailable. Refresh to try again."),result.warnings());
     }
+    @Test void connectedRefreshRetainsInjectedSources() throws Exception {
+        assertEquals(1,catalog(new ServerCatalog.Source("test",()->List.of(server("one","key")))).fetch(12345).servers().size());
+    }
     @Test void allFailedOrEmptyFeedsProduceActionableError() {
         var error=assertThrows(IOException.class,()->catalog(new ServerCatalog.Source("GFP",List::of)).fetch());
         assertTrue(error.getMessage().contains("refresh"));

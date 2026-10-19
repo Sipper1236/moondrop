@@ -8,6 +8,8 @@ import androidx.test.platform.app.InstrumentationRegistry;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import xyz.shadowmere.desktop.Server;
 import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -69,6 +71,32 @@ public final class NativeEngineTest {
         NativeEngine.stop();
         assertListenerClosed(mixedPort);
         assertListenerClosed(encryptedPort);
+    }
+
+    @Test public void productionTwoHopRouteRequiresAnAuthenticatedEntry() throws Exception {
+        Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();
+        int mixed=availablePort(),entryPort=availablePort(),exitPort=availablePort();
+        while(entryPort==mixed)entryPort=availablePort();while(exitPort==mixed||exitPort==entryPort)exitPort=availablePort();
+        Server entry=new Server("manual:entry-fixture","127.0.0.1",entryPort,"aes-128-gcm","entry-fixture-secret","","","",true);
+        Server exit=new Server("manual:exit-fixture","127.0.0.1",exitPort,"aes-128-gcm","exit-fixture-secret","","","",true);
+        ExecutorService worker=Executors.newSingleThreadExecutor();
+        try(ServerSocket target=new ServerSocket(0,1,java.net.InetAddress.getByName("127.0.0.1"))){
+            target.setSoTimeout(10000);String token="moondrop-two-hop-"+UUID.randomUUID();Future<?> response=worker.submit(()->serve(target,token));
+            NativeEngine.start(context,null,twoHopConfig(exit,entry,mixed,false));
+            assertTrue(request(mixed,target.getLocalPort(),token).endsWith(token));response.get(10,TimeUnit.SECONDS);NativeEngine.stop();
+            NativeEngine.start(context,null,twoHopConfig(exit,entry,mixed,true));
+            try {assertFalse("Traffic bypassed broken entry",request(mixed,target.getLocalPort(),"must-not-arrive").contains("moondrop-two-hop"));}catch(java.io.IOException expected){}
+            target.setSoTimeout(500);try(Socket leaked=target.accept()){fail("Broken entry allowed a direct fallback");}catch(java.net.SocketTimeoutException expected){}
+        }finally{NativeEngine.stop();worker.shutdownNow();}
+    }
+    private static String twoHopConfig(Server exit,Server entry,int mixed,boolean wrongEntryPassword){
+        JsonObject root=JsonParser.parseString(AppController.configuration(exit,mixed,false,entry)).getAsJsonObject();
+        JsonArray inbounds=root.getAsJsonArray("inbounds");inbounds.get(0).getAsJsonObject().addProperty("tag","mixed-in");
+        for(Server endpoint:java.util.List.of(entry,exit)){JsonObject incoming=new JsonObject();incoming.addProperty("type","shadowsocks");incoming.addProperty("tag",endpoint==entry?"entry-in":"exit-in");incoming.addProperty("listen","127.0.0.1");incoming.addProperty("listen_port",endpoint.port());incoming.addProperty("method",endpoint.method());incoming.addProperty("password",endpoint.password());inbounds.add(incoming);}
+        JsonObject direct=new JsonObject();direct.addProperty("type","direct");direct.addProperty("tag","direct");root.getAsJsonArray("outbounds").add(direct);
+        JsonArray rules=new JsonArray();rules.add(rule("entry-in","direct"));rules.add(rule("exit-in","direct"));root.getAsJsonObject("route").add("rules",rules);
+        if(wrongEntryPassword)root.getAsJsonArray("outbounds").get(0).getAsJsonObject().addProperty("password","incorrect-entry-password");
+        return root.toString();
     }
 
     private static String loopbackConfig(int mixedPort, int encryptedPort) {

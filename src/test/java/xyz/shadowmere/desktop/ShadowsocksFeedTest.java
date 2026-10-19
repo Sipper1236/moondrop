@@ -9,6 +9,37 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ShadowsocksFeedTest {
+    @Test void feedUsesConfiguredProxyEvenWhenOriginCannotResolve() throws Exception {
+        var proxy=com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+        java.util.concurrent.atomic.AtomicReference<String> requested=new java.util.concurrent.atomic.AtomicReference<>();
+        proxy.createContext("/",exchange->{
+            requested.set(exchange.getRequestURI().toString());
+            byte[] response=link("aes-256-gcm","test-key","").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200,response.length);
+            try(var body=exchange.getResponseBody()){body.write(response);}
+        });
+        proxy.start();
+        try {
+            var endpoint=java.net.URI.create("http://unresolvable.invalid/servers");
+            var feed=new ShadowsocksFeed(endpoint,"test:",false,ServerCatalog.feedClient(proxy.getAddress().getPort()));
+            assertEquals(1,feed.fetch().size());
+            assertEquals(endpoint.toString(),requested.get());
+        } finally {proxy.stop(0);}
+    }
+    @Test void failedProxyNeverFallsBackToDirectFeed() throws Exception {
+        var origin=com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+        java.util.concurrent.atomic.AtomicInteger contacts=new java.util.concurrent.atomic.AtomicInteger();
+        origin.createContext("/",exchange->{contacts.incrementAndGet();exchange.sendResponseHeaders(500,-1);exchange.close();});
+        origin.start();
+        int closedPort;
+        try(var socket=new java.net.ServerSocket(0,1,java.net.InetAddress.getLoopbackAddress())){closedPort=socket.getLocalPort();}
+        try {
+            var endpoint=java.net.URI.create("http://127.0.0.1:"+origin.getAddress().getPort()+"/servers");
+            var feed=new ShadowsocksFeed(endpoint,"test:",false,ServerCatalog.feedClient(closedPort));
+            assertThrows(IOException.class,feed::fetch);
+            assertEquals(0,contacts.get());
+        } finally {origin.stop(0);}
+    }
     private String link(String method, String password, String label) {
         String auth = Base64.getEncoder().encodeToString((method + ":" + password).getBytes(StandardCharsets.UTF_8));
         return "ss://" + auth + "@example.test:8388" + (label.isEmpty() ? "" : "#" + label);

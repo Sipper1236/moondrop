@@ -19,14 +19,14 @@ class NativeProtocolsTest {
 
     static Stream<String> secureProfiles() {
         return Stream.of(
-                "vless://" + UUID + "@example.com:443?security=tls",
-                "vless://" + UUID + "@example.com:443?security=tls&type=ws&host=cdn.example.org&path=%2Fproxy",
-                "vless://" + UUID + "@example.com:443?security=tls&type=grpc&serviceName=proxy",
-                "vless://" + UUID + "@example.com:443?security=tls&type=httpupgrade&host=cdn.example.org&path=%2Fproxy",
-                "vless://" + UUID + "@example.com:443?security=reality&pbk=" + KEY + "&sid=0123456789abcdef&sni=www.example.org&flow=xtls-rprx-vision&fp=chrome",
-                "trojan://test-only-password@example.com:443?sni=certificate.example.org&type=ws&path=%2Fproxy",
-                "hy2://test-only-password@example.com:443?sni=certificate.example.org&obfs=salamander&obfs-password=test-only-obfuscation",
-                "tuic://" + UUID + ":test-only-password@example.com:443?sni=certificate.example.org&congestion_control=bbr&udp_relay_mode=native&alpn=h3");
+                "vless://" + UUID + "@1.1.1.1:443?security=tls",
+                "vless://" + UUID + "@1.1.1.1:443?security=tls&type=ws&host=cdn.example.org&path=%2Fproxy",
+                "vless://" + UUID + "@1.1.1.1:443?security=tls&type=grpc&serviceName=proxy",
+                "vless://" + UUID + "@1.1.1.1:443?security=tls&type=httpupgrade&host=cdn.example.org&path=%2Fproxy",
+                "vless://" + UUID + "@1.1.1.1:443?security=reality&pbk=" + KEY + "&sid=0123456789abcdef&sni=www.example.org&flow=xtls-rprx-vision&fp=chrome",
+                "trojan://test-only-password@1.1.1.1:443?sni=certificate.example.org&type=ws&path=%2Fproxy",
+                "hy2://test-only-password@1.1.1.1:443?sni=certificate.example.org&obfs=salamander&obfs-password=test-only-obfuscation",
+                "tuic://" + UUID + ":test-only-password@1.1.1.1:443?sni=certificate.example.org&congestion_control=bbr&udp_relay_mode=native&alpn=h3");
     }
 
     @ParameterizedTest(name = "secure native profile {index}")

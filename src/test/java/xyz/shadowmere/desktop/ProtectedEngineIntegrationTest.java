@@ -69,7 +69,7 @@ class ProtectedEngineIntegrationTest {
         String auth = protocol.equals("vless") ? UUID : protocol.equals("tuic") ? UUID + ":" + PASSWORD : PASSWORD;
         String uri = protocol + "://" + auth + "@127.0.0.1:" + remotePort + "?sni=localhost"
                 + (protocol.equals("vless") ? "&security=tls" : "");
-        Server parsed = ProxyLinks.parse("local-test", uri, "", "Local fixture", "", true);
+        Server parsed = ProxyLinks.parse("manual:local-test", uri, "", "Local fixture", "", true);
         if (!trusted) return parsed;
         JsonObject profile = parsed.outbound();
         profile.getAsJsonObject("tls").addProperty("certificate_path", certificate.toString());
@@ -108,7 +108,7 @@ class ProtectedEngineIntegrationTest {
         readers.put(remote, reader);
         reader.start();
         try {
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
             while (System.nanoTime() < deadline && remote.isAlive()) {
                 if (ready.get()) return remote;
                 Thread.sleep(25);

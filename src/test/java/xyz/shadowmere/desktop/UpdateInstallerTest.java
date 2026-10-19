@@ -38,23 +38,24 @@ class UpdateInstallerTest {
         return content;
     }
     private UpdateInstaller.Plan plan(Path old,Path staged,String version) throws Exception {
+        SigningFixtures.sidecars(staged,version,hash(staged));
         return new UpdateInstaller.Plan(1,Instant.EPOCH.toString(),old,staged,directory.resolve("moondrop.jar.previous"),hash(staged),version,
                 Path.of(System.getProperty("update.test.java",Path.of(System.getProperty("java.home"),"bin",System.getProperty("os.name").startsWith("Windows")?"java.exe":"java").toString())),directory);
     }
     @Test void installsVerifiedJarAndKeepsRollbackCopy() throws Exception {
         Path old=jar("moondrop.jar","0.3.0"),next=jar("next.jar","0.3.1");byte[] original=Files.readAllBytes(old);
-        var plan=plan(old,next,"0.3.1");UpdateInstaller.install(plan);
+        var plan=plan(old,next,"0.3.1");UpdateInstaller.install(plan,SigningFixtures.KEY.getPublic());
         assertArrayEquals(Files.readAllBytes(next),Files.readAllBytes(old));assertArrayEquals(original,Files.readAllBytes(plan.backup()));
         UpdateInstaller.restore(plan);assertArrayEquals(original,Files.readAllBytes(old));
     }
     @Test void tamperedStageNeverChangesInstalledJar() throws Exception {
         Path old=jar("moondrop.jar","0.3.0"),next=jar("next.jar","0.3.1");var plan=plan(old,next,"0.3.1");byte[] original=Files.readAllBytes(old);
-        Files.writeString(next,"tampered");assertThrows(IOException.class,()->UpdateInstaller.install(plan));
+        Files.writeString(next,"tampered");assertThrows(IOException.class,()->UpdateInstaller.install(plan,SigningFixtures.KEY.getPublic()));
         assertArrayEquals(original,Files.readAllBytes(old));assertFalse(Files.exists(plan.backup()));
     }
     @Test void wrongVersionNeverChangesInstalledJar() throws Exception {
         Path old=jar("moondrop.jar","0.3.0"),next=jar("next.jar","0.3.1");byte[] original=Files.readAllBytes(old);
-        assertThrows(IOException.class,()->UpdateInstaller.install(plan(old,next,"0.9.0")));assertArrayEquals(original,Files.readAllBytes(old));
+        assertThrows(IOException.class,()->UpdateInstaller.install(plan(old,next,"0.9.0"),SigningFixtures.KEY.getPublic()));assertArrayEquals(original,Files.readAllBytes(old));
     }
     @Test void refusesToReplaceJarWhileSameAppProcessIsAlive() {
         Instant started=ProcessHandle.current().info().startInstant().orElseThrow();
@@ -94,6 +95,19 @@ class UpdateInstallerTest {
                 try(InputStream input=UpdateInstaller.class.getClassLoader().getResourceAsStream(resource)){assertNotNull(input);input.transferTo(out);}out.closeEntry();
             }
         }
+        Path verifierSource=directory.resolve("verifier/xyz/shadowmere/desktop/ReleaseSignatures.java");
+        Files.createDirectories(verifierSource.getParent());
+        String verifier=Files.readString(Path.of("src/main/java/xyz/shadowmere/desktop/ReleaseSignatures.java"))
+            .replace(ReleaseSignatures.PUBLIC_KEY,java.util.Base64.getEncoder().encodeToString(SigningFixtures.KEY.getPublic().getEncoded()));
+        Files.writeString(verifierSource,verifier);
+        assertEquals(0,ToolProvider.getSystemJavaCompiler().run(null,null,null,"--release","17",verifierSource.toString()));
+        // Add the isolated test verifier to the standalone helper; production helper always embeds production trust.
+        Path complete=updates.resolve("complete.jar");
+        try(JarFile original=new JarFile(helper.toFile());JarOutputStream out=new JarOutputStream(Files.newOutputStream(complete))) {
+            var entries=original.entries();while(entries.hasMoreElements()) { var entry=entries.nextElement();out.putNextEntry(new JarEntry(entry.getName()));try(InputStream in=original.getInputStream(entry)){in.transferTo(out);}out.closeEntry(); }
+            out.putNextEntry(new JarEntry("xyz/shadowmere/desktop/ReleaseSignatures.class"));Files.copy(verifierSource.resolveSibling("ReleaseSignatures.class"),out);out.closeEntry();
+        }
+        Files.move(complete,helper,StandardCopyOption.REPLACE_EXISTING);
         var p=plan(old,next,"0.3.1");
         // A deliberately mismatched start instant represents an already exited parent/PID reuse.
         p=new UpdateInstaller.Plan(ProcessHandle.current().pid(),Instant.EPOCH.toString(),p.installed(),p.staged(),p.backup(),p.sha256(),p.version(),p.java(),p.data());

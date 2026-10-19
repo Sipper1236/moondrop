@@ -9,7 +9,7 @@ class PortablePackage {
     public static void main(String[] args) throws Exception {
         Map<String,Path> inputs=new LinkedHashMap<>();
         inputs.put("moondrop.jar",Path.of("target/moondrop.jar"));
-        for(String name:new String[]{"README.md","INSTALL.md","LICENSE","THIRD_PARTY.md"}) inputs.put(name,Path.of(name));
+        for(String name:new String[]{"README.md","INSTALL.md","LICENSE","THIRD_PARTY.md","WINDOWS-TUNNEL.md","MACOS-TUNNEL.md"}) inputs.put(name,Path.of(name));
         for(String name:new String[]{"moondrop.desktop","moondrop.svg"}) inputs.put(name,Path.of(name));
         for(String name:new String[]{"launch-windows.bat","launch-macos.command","installmacos.command","launch-linux.sh","install-linux.sh"}) inputs.put(name,Path.of("scripts/launchers",name));
         Files.createDirectories(Path.of("dist"));

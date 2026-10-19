@@ -29,18 +29,18 @@ public final class MoondropVpnService extends VpnService {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) { finishSession(); return START_NOT_STICKY; }
-        if (ACTION_DISCONNECT.equals(intent.getAction())) {
+        boolean restore=intent==null||SERVICE_INTERFACE.equals(intent.getAction());
+        if (!restore&&ACTION_DISCONNECT.equals(intent.getAction())) {
             AppController.get(this).handleDisconnect(this);
             return START_NOT_STICKY;
         }
-        if (!ACTION_CONNECT.equals(intent.getAction())) { finishSession(); return START_NOT_STICKY; }
+        if (!restore&&!ACTION_CONNECT.equals(intent.getAction())) { finishSession(); return START_NOT_STICKY; }
         finishing = false;
         Notification notification = notification("Finding your fastest connection…");
         if (Build.VERSION.SDK_INT >= 34) startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
         else startForeground(NOTIFICATION_ID, notification);
-        AppController.get(this).handleConnect(this, intent.getStringExtra(EXTRA_SERVER_KEY));
-        return START_NOT_STICKY;
+        if(restore)AppController.get(this).handleRestore(this);else AppController.get(this).handleConnect(this, intent.getStringExtra(EXTRA_SERVER_KEY));
+        return START_STICKY;
     }
 
     public void updateNotification(String text) {

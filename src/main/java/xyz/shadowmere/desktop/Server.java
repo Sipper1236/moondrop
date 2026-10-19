@@ -16,9 +16,7 @@ public record Server(String id, String host, int port, String method, String pas
     }
     private static final Set<String> ENCRYPTED_METHODS = Set.of(
             "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305",
-            "aes-128-gcm", "aes-192-gcm", "aes-256-gcm", "chacha20-ietf-poly1305", "xchacha20-ietf-poly1305",
-            "aes-128-ctr", "aes-192-ctr", "aes-256-ctr", "aes-128-cfb", "aes-192-cfb", "aes-256-cfb",
-            "rc4-md5", "chacha20-ietf", "xchacha20");
+            "aes-128-gcm", "aes-192-gcm", "aes-256-gcm", "chacha20-ietf-poly1305", "xchacha20-ietf-poly1305");
     static boolean supportsEncryptedMethod(String method) {return ENCRYPTED_METHODS.contains(method);}
     public Server {
         if (host == null || host.isBlank() || port < 1 || port > 65535 || method == null || method.isBlank()
@@ -52,6 +50,7 @@ public record Server(String id, String host, int port, String method, String pas
             profile.remove("tag");
             return profile;
         }
+        if (!supportsEncryptedMethod(method)) throw new IllegalArgumentException("Unsupported Shadowsocks cipher; modern AEAD encryption is required.");
         JsonObject profile = new JsonObject();
         profile.addProperty("type", "shadowsocks"); profile.addProperty("server", host);
         profile.addProperty("server_port", port); profile.addProperty("method", method);
@@ -114,8 +113,10 @@ public record Server(String id, String host, int port, String method, String pas
         URI address = URI.create("ss://" + body.substring(at + 1));
         String host = address.getHost();
         if (host != null && host.startsWith("[")) host = host.substring(1, host.length() - 1);
-        return new Server(id, host, address.getPort(), auth.substring(0, colon), auth.substring(colon + 1),
+        Server parsed = new Server(id, host, address.getPort(), auth.substring(0, colon), auth.substring(colon + 1),
                 country, location, checked, active);
+        PublicEndpoints.requirePublicLiteral(parsed);
+        return parsed;
     }
 
     // The charset-name overload also works on Android 8–12.

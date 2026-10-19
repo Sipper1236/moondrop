@@ -15,7 +15,7 @@ http=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler)
 threading.Thread(target=http.serve_forever,daemon=True).start()
 with socket.socket() as reserved:
     reserved.bind(('127.0.0.1',0));ss_port=reserved.getsockname()[1]
-config={'log':{'level':'error'},'inbounds':[{'type':'shadowsocks','tag':'fixture','listen':'127.0.0.1','listen_port':ss_port,'method':'chacha20-ietf-poly1305','password':'moondrop-local-routing-fixture'}],'outbounds':[{'type':'direct','tag':'direct'}],'route':{'rules':[{'inbound':['fixture'],'action':'route','outbound':'direct','override_address':'127.0.0.1','override_port':http.server_port}]}}
+config={'log':{'level':'error'},'inbounds':[{'type':'shadowsocks','tag':'fixture','listen':'127.0.0.1','listen_port':ss_port,'method':'chacha20-ietf-poly1305','password':'moondrop-local-routing-fixture'}],'outbounds':[{'type':'direct','tag':'direct'}],'route':{'final':'direct','rules':[{'inbound':['fixture'],'ip_cidr':['198.18.0.42/32'],'action':'route','outbound':'direct','override_address':'127.0.0.1','override_port':http.server_port}]}}
 path=folder/'remote.json';path.write_text(json.dumps(config));path.chmod(0o600)
 remote=subprocess.Popen([args.core,'run','-c',str(path)],stdout=subprocess.DEVNULL,stderr=(folder/'remote.log').open('wb'))
 def finish(*_):raise SystemExit()

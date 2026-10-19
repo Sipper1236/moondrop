@@ -4,6 +4,7 @@
 
 - **sing-box**, SagerNet — GPL-3.0-or-later, https://github.com/SagerNet/sing-box. Downloaded separately at runtime from the official v1.14.3 release. Binary archives are verified against pinned SHA-256 values from that release. Corresponding source: https://github.com/SagerNet/sing-box/tree/v1.14.3. The desktop core has no local modifications. Android bundles this core, built from commit `7054cac5124465ffdb145870d7c01885566711b1`, with Moondrop’s GPL bridge; build commands and feature tags are in `android/native/build.sh`. Its Go dependency versions and licenses are available in the pinned upstream source.
 - **AndroidX Test** (Android tests only) and **Android desugar_jdk_libs** — Apache-2.0, https://github.com/android/android-test and https://github.com/google/desugar_jdk_libs.
+- **Java Native Access (JNA/JNA Platform) 5.19.1** — Apache-2.0 (chosen dual-license option), https://github.com/java-native-access/jna. Used to obtain Windows system paths from native Known Folder APIs rather than inherited environment variables.
 - **FlatLaf** — Apache-2.0, https://github.com/JFormDesigner/FlatLaf.
 - **Gson** — Apache-2.0, https://github.com/google/gson.
 - **Apache Commons Compress**, **Commons IO**, **Commons Lang** — Apache-2.0, https://commons.apache.org/.

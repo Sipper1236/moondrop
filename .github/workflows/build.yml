@@ -9,6 +9,10 @@ permissions:
   contents: read
 jobs:
   package:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -23,8 +27,8 @@ jobs:
             label: Windows-x64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '21'
@@ -56,6 +60,10 @@ jobs:
           $engine = (Resolve-Path target/native-test-data/engine/sing-box.exe).Path
           mvn -B "-Dengine.test.path=$engine" test
           if ($LASTEXITCODE -ne 0) { throw 'Encrypted connection test failed' }
+      - name: Verify Linux strict tunnel in an isolated offline network namespace
+        if: runner.os == 'Linux'
+        run: |
+          sudo env MOONDROP_TEST_HOST_NET="$(readlink /proc/self/ns/net)" MOONDROP_TUN_TEST_CORE="$PWD/target/native-test-data/engine/sing-box" unshare -n -- python3 scripts/test-linux-tunnel.py --namespace
       - name: Ensure WiX 3 is available
         if: runner.os == 'Windows'
         shell: pwsh
@@ -100,11 +108,27 @@ jobs:
           "$runtime" "-Dshadowmere.dataDir=$PWD/target/bundled-runtime-check" -jar "$PWD/target/dmg-check/Moondrop.app/Contents/app/moondrop.jar" --install-engine
           grep -F -- '-Dmoondrop.distribution=native' "$PWD/target/dmg-check/Moondrop.app/Contents/app/Moondrop.cfg"
           mvn -B -Dtest=AppUpdaterTest,UpdateInstallerTest "-Dupdate.test.java=$runtime" test
-      - uses: actions/upload-artifact@v4
+      - name: Generate dependency SBOM
+        run: mvn -B org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom -DoutputDirectory=dist -DoutputName=moondrop-sbom
+      - name: Reject high-severity vulnerable dependencies
+        run: python3 scripts/check-vulnerabilities.py dist/moondrop-sbom.json
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+        if: github.event_name == 'push'
+        with:
+          subject-path: |
+            target/moondrop.jar
+            dist/*
+      - uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34
+        if: github.event_name == 'push'
+        with:
+          subject-path: target/moondrop.jar
+          sbom-path: dist/moondrop-sbom.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Moondrop-${{ matrix.label }}
           path: |
             dist/Moondrop.zip
+            dist/moondrop-sbom.*
             dist/*.exe
             dist/*.dmg
             target/moondrop.jar

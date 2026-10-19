@@ -42,7 +42,7 @@ public final class QuickConnect {
                     sockets.add(socket);
                     try (socket) {
                         if (Thread.currentThread().isInterrupted()) throw new InterruptedException();
-                        socket.connect(new InetSocketAddress(server.host(), server.port()), 1200);
+                        socket.connect(new InetSocketAddress(PublicEndpoints.resolve(server), server.port()), 1200);
                         return System.nanoTime() - start;
                     } finally { sockets.remove(socket); }
                 }, measurements, nearbyCountry);

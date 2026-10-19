@@ -105,6 +105,30 @@ class AppWindowUsabilityTest {
         assertFalse(text.contains("Mb/s"));assertFalse(text.contains("100%"));
     }
 
+    @Test void fullDeviceAndStrictOptionsAreAccessibleWithoutAdvancedMode()throws Exception {
+        withWindow((window,actions)->{
+            assertFalse(actions.settings.advancedMode());
+            AtomicReference<Throwable> failure=new AtomicReference<>();boolean[] expected=new boolean[2];
+            Timer timer=new Timer(100,event->{
+                try {
+                    JDialog dialog=java.util.Arrays.stream(Window.getWindows()).filter(w->w instanceof JDialog&&w.isVisible()).map(w->(JDialog)w).findFirst().orElseThrow();
+                    JCheckBox full=(JCheckBox)findButton(dialog,"Full-device tunnel ("+DesktopTunnel.platform()+")");
+                    JCheckBox strict=(JCheckBox)findButton(dialog,"Keep internet blocked when the tunnel disconnects");
+                    assertNotNull(full);assertNotNull(strict);assertFalse(full.isSelected());assertFalse(strict.isEnabled());
+                    assertNotNull(findButton(dialog,"Restore direct internet…"));
+                    if(full.isEnabled()){full.doClick();assertTrue(strict.isEnabled());strict.doClick();}
+                    expected[0]=full.isSelected();expected[1]=strict.isSelected();
+                    findButton(dialog,"Save options").doClick();
+                }catch(Throwable error){failure.set(error);for(Window open:Window.getWindows())if(open instanceof JDialog)open.dispose();}
+            });timer.setRepeats(false);timer.start();
+            var method=AppWindow.class.getDeclaredMethod("showPrivacySettings");method.setAccessible(true);method.invoke(window);
+            if(failure.get()!=null)throw new AssertionError(failure.get());
+            assertEquals(expected[0],actions.settings.privacy().fullDevice());
+            assertEquals(expected[1],actions.settings.privacy().strictTunnel());
+            assertFalse(actions.settings.advancedMode());
+        });
+    }
+
     private static void saveAdvancedMode(AppWindow window,boolean enabled) {
         AtomicReference<Throwable> failure=new AtomicReference<>();
         Timer timer=new Timer(100,event -> {

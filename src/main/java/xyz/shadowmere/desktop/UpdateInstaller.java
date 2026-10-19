@@ -14,6 +14,7 @@ public final class UpdateInstaller {
     private UpdateInstaller() { }
 
     public static Path prepare(Path staged,String sha256,String version,Path dataDir) throws Exception {
+        ReleaseSignatures.verifyStaged(staged,version,sha256);
         Path installed=Path.of(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI()).toRealPath();
         if(!installed.toString().endsWith(".jar")||!Files.isRegularFile(installed))
             throw new IOException("Automatic installation works from the downloaded JAR. Download Moondrop.zip to update a source build.");
@@ -22,7 +23,7 @@ public final class UpdateInstaller {
         Path updates=dataDir.toAbsolutePath().resolve("updates");Files.createDirectories(updates);
         Path helper=updates.resolve("installer-helper.jar");
         try(JarOutputStream out=new JarOutputStream(Files.newOutputStream(helper))) {
-            for(String name:List.of("UpdateInstaller.class","UpdateInstaller$Plan.class")) {
+            for(String name:List.of("UpdateInstaller.class","UpdateInstaller$Plan.class","ReleaseSignatures.class")) {
                 String resource="xyz/shadowmere/desktop/"+name;
                 try(InputStream in=UpdateInstaller.class.getClassLoader().getResourceAsStream(resource)) {
                     if(in==null)throw new IOException("The update helper is missing from this build.");
@@ -74,7 +75,9 @@ public final class UpdateInstaller {
         }
     }
 
-    static void install(Plan plan) throws Exception {
+    static void install(Plan plan) throws Exception { install(plan,ReleaseSignatures.trustedKey()); }
+    static void install(Plan plan,java.security.PublicKey key) throws Exception {
+        ReleaseSignatures.verifyStaged(plan.staged(),plan.version(),plan.sha256(),key);
         verify(plan.staged(),plan.sha256(),plan.version());
         Path replacement=Files.createTempFile(plan.installed().getParent(),".moondrop-update-", ".jar");
         try {

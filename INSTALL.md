@@ -1,10 +1,10 @@
 # Install Moondrop
 
-Download from the [Moondrop v0.7.2 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.2), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
+Download from the [Moondrop v0.7.3 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.3), currently a prerelease. **The Windows and macOS installers include a Temurin OpenJDK 21 runtime. You do not need to install Java separately for these installers.**
 
 ## Windows installer
 
-1. Under **Assets**, download **Moondrop-0.7.2-Windows-x64.exe** for a Windows x64 PC.
+1. Under **Assets**, download **Moondrop-0.7.3-Windows-x64.exe** for a Windows x64 PC.
 2. Run the installer. It installs for your user account and creates Start menu and desktop shortcuts.
 3. Open **Moondrop** from either shortcut.
 
@@ -13,7 +13,7 @@ This release is unsigned. Windows SmartScreen or Microsoft Defender may warn abo
 ## macOS installer
 
 1. Open Apple menu → **About This Mac** to check your chip.
-2. Download **Moondrop-0.7.2-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.7.2-macOS-x64.dmg** for Intel.
+2. Download **Moondrop-0.7.3-macOS-arm64.dmg** for Apple Silicon (M1 and newer), or **Moondrop-0.7.3-macOS-x64.dmg** for Intel.
 3. Open the DMG and drag **Moondrop.app** into **Applications**. If that folder is not writable by your account, use `~/Applications` instead.
 4. Open Moondrop from Applications, then eject the installer disk.
 
@@ -106,7 +106,7 @@ java -version
 
 ### 2. Download the portable archive
 
-1. Open the [Moondrop v0.7.2 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.2). This is a prerelease.
+1. Open the [Moondrop v0.7.3 release](https://github.com/Sipper1236/moondrop/releases/tag/v0.7.3). This is a prerelease.
 2. Under **Assets**, download **Moondrop.zip**. The same archive works on all supported operating systems; it contains Moondrop and launchers, without Java.
 3. Extract the entire ZIP. On Windows and macOS, keep that folder for running Moondrop. On Linux, the installer below copies the app to a stable location in your user account. Do not run from inside the ZIP.
 
@@ -205,3 +205,10 @@ If you also want to remove Moondrop's downloaded engine and saved state, delete 
 - Linux: `~/.local/share/shadowmere-desktop`
 
 These older Shadowmere folder names are retained for compatibility and proxy recovery.
+
+
+## Optional full-device tunnels
+
+Application Proxy Mode remains the default. Open **Settings → Privacy & routing** to select **Full-device tunnel** and, independently, **Keep internet blocked when the tunnel disconnects**. Windows and macOS backends are experimental pending native traffic/leak/crash validation. They require administrator authorization; macOS additionally needs a root-owned Python 3 installation (Apple developer tools or Python.org framework, not a user-owned Homebrew interpreter). Strict blocking is intentionally retained after disconnect. Use **Restore direct internet** to release it.
+
+See [Windows tunnel setup and recovery](WINDOWS-TUNNEL.md), [macOS tunnel setup and recovery](MACOS-TUNNEL.md), and [Linux tunnel setup](scripts/LINUX-TUNNEL.md).

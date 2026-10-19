@@ -9,12 +9,18 @@ import java.util.List;
 /** User preferences, separate from connection credentials and speed results. */
 public record AppSettings(boolean automaticUpdates, boolean automaticTesting,
                           boolean nearbyFirst, boolean systemProxy, Set<String> enabledProtocols,
-                          boolean advancedMode) {
+                          boolean advancedMode, PrivacyOptions privacy) {
     public static final List<String> PROTOCOLS=List.of("shadowsocks","vless","trojan","hysteria2","tuic");
     public AppSettings {
+        java.util.Objects.requireNonNull(privacy);
         enabledProtocols=Set.copyOf(enabledProtocols);
         if(!PROTOCOLS.containsAll(enabledProtocols))throw new IllegalArgumentException("Unsupported protocol preference");
     }
+    public AppSettings(boolean automaticUpdates,boolean automaticTesting,boolean nearbyFirst,boolean systemProxy,
+                       Set<String> enabledProtocols,boolean advancedMode) {
+        this(automaticUpdates,automaticTesting,nearbyFirst,systemProxy,enabledProtocols,advancedMode,PrivacyOptions.defaults());
+    }
+    public boolean bulkTestingAllowed(){return automaticTesting&&!privacy.singleAttempt();}
     public AppSettings(boolean automaticUpdates,boolean automaticTesting,boolean nearbyFirst,boolean systemProxy) {
         this(automaticUpdates,automaticTesting,nearbyFirst,systemProxy,Set.copyOf(PROTOCOLS));
     }
@@ -27,13 +33,18 @@ public record AppSettings(boolean automaticUpdates, boolean automaticTesting,
     public static AppSettings defaults() { return new AppSettings(true, true, true, true); }
     public static AppSettings load(Path data) throws IOException {
         Path file = data.resolve("settings.properties");
-        if (!Files.exists(file)) return defaults();
+        if (!Files.exists(file)) {
+            if(!ServerCache.hasEncryptedSnapshot(data))return defaults();
+            Properties recovered=new Properties();recovered.setProperty("privacy.secureCatalog","true");
+            return new AppSettings(true,true,true,true,Set.copyOf(PROTOCOLS),false,PrivacyOptions.load(recovered));
+        }
         Properties values = new Properties();
         try (Reader reader = Files.newBufferedReader(file)) { values.load(reader); }
+        if(!values.containsKey("privacy.secureCatalog")&&ServerCache.hasEncryptedSnapshot(data))values.setProperty("privacy.secureCatalog","true");
         return new AppSettings(value(values,"automaticUpdates"), value(values,"automaticTesting"),
                 value(values,"nearbyFirst"), value(values,"systemProxy"),
                 PROTOCOLS.stream().filter(protocol -> value(values,"protocol."+protocol)).collect(java.util.stream.Collectors.toSet()),
-                Boolean.parseBoolean(values.getProperty("advancedMode", "false")));
+                Boolean.parseBoolean(values.getProperty("advancedMode", "false")),PrivacyOptions.load(values));
     }
     private static boolean value(Properties values, String name) {
         return !"false".equalsIgnoreCase(values.getProperty(name, "true"));
@@ -47,6 +58,7 @@ public record AppSettings(boolean automaticUpdates, boolean automaticTesting,
         values.setProperty("systemProxy", Boolean.toString(systemProxy));
         values.setProperty("advancedMode", Boolean.toString(advancedMode));
         for(String protocol:PROTOCOLS)values.setProperty("protocol."+protocol,Boolean.toString(enabledProtocols.contains(protocol)));
+        privacy.save(values);
         Path temporary = Files.createTempFile(data,"settings-", ".tmp");
         try {
             try (Writer writer = Files.newBufferedWriter(temporary)) { values.store(writer,"Moondrop preferences"); }

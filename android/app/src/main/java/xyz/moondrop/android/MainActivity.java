@@ -36,6 +36,8 @@ public final class MainActivity extends Activity implements AppController.Listen
             TEXT=0xffedf5f1, MUTED=0xff9baeb7, BORDER=0xff30414c, VPN_REQUEST=41, NOTIFICATION_REQUEST=42;
     private static final Set<String> ISO_COUNTRIES=Set.of(Locale.getISOCountries());
     private AppController controller;
+    private final AndroidUpdater updater=new AndroidUpdater();
+    private AlertDialog settingsDialog;
     private AppState state;
     private TextView status, detail, progress, count, error;
     private Button connect;
@@ -75,6 +77,7 @@ public final class MainActivity extends Activity implements AppController.Listen
         LinearLayout brand=column(); brand.addView(label("MOONDROP",23,TEXT,true)); brand.addView(label("by rayyan",12,MUTED,false));
         header.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
         header.addView(icon("↻","Refresh servers",v->controller.refresh()));
+        header.addView(icon("↓","Check for updates",v->checkForUpdates(true)));
         header.addView(icon("⚙","Settings",v->showSettings())); root.addView(header);
         LinearLayout hero=connectionCard=column(); hero.setPadding(dp(18),dp(18),dp(18),dp(18)); hero.setBackground(shape(CARD,22));
         status=label("Ready to connect",21,TEXT,true); detail=label("Automatically chooses your best tested server",13,MUTED,false);
@@ -100,7 +103,7 @@ public final class MainActivity extends Activity implements AppController.Listen
         sort.setOnItemSelectedListener(new SimpleSelection(){@Override public void onItemSelected(AdapterView<?> p,View v,int pos,long id){filter();}});
         ListView list=new ListView(this);list.setDivider(null);list.setDividerHeight(dp(8));list.setPadding(0,dp(12),0,dp(12));list.setClipToPadding(false);
         adapter=new ServerAdapter();list.setAdapter(adapter);list.setOnItemClickListener((parent,view,pos,id)->showServer(visible.get(pos)));
-        root.addView(list,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);root.requestApplyInsets();onState(controller.state());
+        root.addView(list,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);root.requestApplyInsets();onState(controller.state());if(controller.preferences().automaticUpdates)checkForUpdates(false);
     }
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putBoolean("vpn_permission_pending",permissionPending);if(pendingServerKey!=null)out.putString("pending_server_key",pendingServerKey);}
     @Override protected void onStart(){super.onStart();controller.addListener(this);}
@@ -112,7 +115,7 @@ public final class MainActivity extends Activity implements AppController.Listen
         detail.setText(next.detail==null?"Automatically chooses your best tested server":next.detail);
         connect.setText(next.connecting?"Cancel":next.connected?"Disconnect":"Connect");
         connect.setEnabled(!permissionPending);
-        progress.setText(next.testing?"Finding your fastest connection · "+next.checked+" checked · "+next.working+" working":next.loading?"Showing saved servers · refreshing locations…":next.working>0?next.working+" working servers · saved results reused":"Saved results are reused; new servers are tested automatically");
+        progress.setText(next.testing?"Finding your fastest connection · "+next.checked+" checked · "+next.working+" working":next.loading?"Showing saved servers · refreshing locations…":next.working>0?next.working+" working servers · saved results reused":controller.preferences().singleServerMode()?"Single-server selection · saved rankings · no background scans":"Saved results are reused; new servers are tested automatically");
         error.setText(next.error==null?"":next.error);error.setVisibility(next.error==null||next.error.isBlank()?View.GONE:View.VISIBLE);
         errorActions.setVisibility(error.getVisibility());
         TreeSet<String> names=new TreeSet<>();for(Server server:next.servers)names.add(server.countryName());
@@ -135,6 +138,10 @@ public final class MainActivity extends Activity implements AppController.Listen
     }
     private Measurement measurement(Server server){return state.measurements.get(ServerRepository.key(server));}
     private void requestConnection(Server server){
+        if(controller.preferences().singleServerMode()){new AlertDialog.Builder(this).setTitle("Contact one proxy?").setMessage("The entry proxy operator can see your public IP. One cached-ranked exit is attempted; no automatic alternatives. With two-hop routing, traffic goes through the selected Shadowsocks entry before the exit. Operator independence is not verified and traffic correlation remains possible. HTTPS checks use the selected route.").setPositiveButton("Connect one server",(d,w)->requestDisclosedConnection(server)).setNegativeButton("Cancel",null).show();return;}
+        requestDisclosedConnection(server);
+    }
+    private void requestDisclosedConnection(Server server){
         if(permissionPending)return;
         if(state!=null&&(state.connected||state.connecting)){new AlertDialog.Builder(this).setTitle("Switch connection?").setMessage("Disconnect your current connection before choosing another server.").setPositiveButton("Disconnect",(d,w)->controller.disconnect()).setNegativeButton("Keep connection",null).show();return;}
         pendingServer=server;pendingServerKey=server==null?null:ServerRepository.key(server);
@@ -156,7 +163,7 @@ public final class MainActivity extends Activity implements AppController.Listen
         super.onRequestPermissionsResult(request,permissions,grants);
         if(request==NOTIFICATION_REQUEST)prepareVpnPermission();
     }
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==VPN_REQUEST){permissionPending=false;connect.setEnabled(true);if(result==RESULT_OK)startPendingConnection();else{pendingServer=null;pendingServerKey=null;Toast.makeText(this,"VPN permission is needed to connect",Toast.LENGTH_LONG).show();}}}
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==VPN_REQUEST){permissionPending=false;connect.setEnabled(true);if(result==RESULT_OK)startPendingConnection();else{pendingServer=null;pendingServerKey=null;Toast.makeText(this,"VPN permission is needed to connect",Toast.LENGTH_LONG).show();}}else if(request==7341)updater.resumeInstall(this);}
     private void startPendingConnection(){
         Server server=pendingServer;String key=pendingServerKey;pendingServer=null;pendingServerKey=null;
         if(server==null&&key!=null){
@@ -168,27 +175,75 @@ public final class MainActivity extends Activity implements AppController.Listen
     private void showServer(Server server){
         Measurement m=measurement(server);String body=server.protocolName()+" · "+server.protectionLabel()+"\n\n"+quality(m);
         if(controller.preferences().advancedMode)body+="\n\n"+server.protectionDetail()+"\n"+(m==null?"Not tested yet":m.successes+" of "+m.attempts+" checks succeeded");
-        new AlertDialog.Builder(this).setTitle(flag(server.country())+"  "+server.countryName()).setMessage(body).setPositiveButton("Connect",(d,w)->requestConnection(server)).setNegativeButton("Close",null).show();
+        new AlertDialog.Builder(this).setTitle(flag(server.country())+"  "+server.countryName()).setMessage(body).setPositiveButton("Connect",(d,w)->requestConnection(server)).setNeutralButton("Test this server",(d,w)->{
+            new AlertDialog.Builder(this).setTitle("Test one proxy?").setMessage("The directly contacted entry operator will see your public IP. HTTPS latency and download checks travel through the selected encrypted route. Disconnect your current VPN before testing.").setPositiveButton("Test",(a,b)->controller.testServer(server)).setNegativeButton("Cancel",null).show();
+        }).setNegativeButton("Close",null).show();
     }
     private void showSettings(){
+        if(settingsDialog!=null&&settingsDialog.isShowing())return;
         LinearLayout box=column();box.setPadding(dp(24),dp(8),dp(24),dp(12));
         ScrollView scroll=new ScrollView(this);scroll.addView(box);
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Settings").setView(scroll).setPositiveButton("Done",null).create();
-        buildSettings(box,dialog);dialog.show();
+        settingsDialog=dialog;dialog.setOnDismissListener(d->settingsDialog=null);buildSettings(box,dialog);dialog.show();
     }
+
+    private void checkForUpdates(boolean userInitiated) {
+        if(!userInitiated&&!controller.preferences().automaticUpdates)return;
+        updater.check((available,failure)->runOnUiThread(()->{
+            if(isFinishing())return;
+            if(failure!=null){if(userInitiated)Toast.makeText(this,"Could not check GitHub Releases for updates.",Toast.LENGTH_LONG).show();return;}
+            if(available==null){if(userInitiated)Toast.makeText(this,"Moondrop is up to date.",Toast.LENGTH_SHORT).show();return;}
+            new AlertDialog.Builder(this).setTitle("Moondrop update available")
+                    .setMessage("Version "+available.version()+" is available. The APK will be checksum-checked and must match the installed publisher signature before Android offers to install it.")
+                    .setPositiveButton("Download",(dialog,which)->downloadUpdate(available)).setNegativeButton("Later",null).show();
+        }));
+    }
+
+    private void downloadUpdate(AndroidUpdater.Update update) {
+        Toast.makeText(this,"Downloading and verifying Moondrop "+update.version()+"…",Toast.LENGTH_LONG).show();
+        updater.downloadAndInstall(this,update,(ready,failure)->{
+            if(isFinishing())return;
+            if(failure!=null){Toast.makeText(this,failure.getMessage(),Toast.LENGTH_LONG).show();return;}
+            new AlertDialog.Builder(this).setTitle("Update verified")
+                    .setMessage("Android will now ask you to confirm installation.")
+                    .setPositiveButton("Install",(dialog,which)->{try{updater.install(this);}catch(Exception problem){Toast.makeText(this,problem.getMessage(),Toast.LENGTH_LONG).show();}})
+                    .setNegativeButton("Not now",null).show();
+        });
+    }
+
     private void buildSettings(LinearLayout box,AlertDialog dialog){
         box.removeAllViews();Preferences prefs=controller.preferences();
-        TextView intro=label("Moondrop uses Android’s VPN connection to protect device traffic.",13,MUTED,false);box.addView(intro);
+        TextView intro=label("Device VPN · routes other apps through an encrypted proxy. Moondrop itself is excluded so feeds and proxy connections can reach the network.",13,MUTED,false);box.addView(intro);
         toggle(box,"Advanced mode","Show protocols, detailed measurements and diagnostics",prefs.advancedMode,value->{controller.savePreferences(controller.preferences().withAdvancedMode(value));buildSettings(box,dialog);filter();});
+        toggle(box,"Privacy mode","Optional: cached ranking, no background scans, one proxy per connection attempt",prefs.privacyMode,value->{controller.savePreferences(controller.preferences().withPrivacyMode(value));buildSettings(box,dialog);});
+        toggle(box,"Ask before contacting a proxy","Confirm each connection, try one cached-ranked server, and pause background tests",prefs.confirmProxyContact,value->{controller.savePreferences(controller.preferences().withConfirmProxyContact(value));buildSettings(box,dialog);});
+        toggle(box,"Check for updates automatically","Contact GitHub Releases when Moondrop opens; manual update checks remain available",prefs.automaticUpdates,value->controller.savePreferences(controller.preferences().withAutomaticUpdates(value)));
+        TextView privacyNote=label(prefs.singleServerMode()?"Automatic tests are paused. Use a server’s Test action to intentionally contact it.":"Automatic testing may contact many proxy operators; each can see your public IP.",12,MUTED,false);box.addView(privacyNote);
         toggle(box,"Test servers automatically","Reuse cached results and test new servers",prefs.automaticTesting,value->controller.savePreferences(controller.preferences().withAutomaticTesting(value)));
+        toggle(box,"Nearby locations first","Prioritize your selected country or device region; no IP lookup",prefs.nearbyFirst,value->controller.savePreferences(controller.preferences().withNearbyFirst(value)));
+        Button region=new Button(this);region.setAllCaps(false);region.setText("Preferred country: "+(prefs.manualCountry.isEmpty()?"Device region":prefs.manualCountry));region.setOnClickListener(v->{
+            EditText input=new EditText(this);input.setSingleLine(true);input.setHint("Two-letter country, e.g. CA (blank = device)");input.setText(controller.preferences().manualCountry);
+            new AlertDialog.Builder(this).setTitle("Preferred country").setMessage("Manual selection only. Moondrop Android never contacts an IP geolocation provider.").setView(input).setPositiveButton("Save",(d,w)->{String code=input.getText().toString().trim();if(!code.isEmpty()&&Preferences.normalizeCountry(code).isEmpty()){Toast.makeText(this,"Enter a valid two-letter country code",Toast.LENGTH_LONG).show();return;}controller.savePreferences(controller.preferences().withManualCountry(code));buildSettings(box,dialog);}).setNegativeButton("Cancel",null).show();});box.addView(region);
+        Button chain=new Button(this);chain.setAllCaps(false);chain.setText(prefs.entryKey.isEmpty()?"Two-hop routing: off":"Two-hop routing: selected entry");chain.setOnClickListener(v->{
+            List<Server> entries=new ArrayList<>();for(Server candidate:controller.state().servers)if(candidate.protocol().equals("shadowsocks"))entries.add(candidate);
+            String[] labels=new String[entries.size()+1];labels[0]="Off · connect directly to one exit";for(int i=0;i<entries.size();i++)labels[i+1]=flag(entries.get(i).country())+" "+entries.get(i).countryName()+" · Shadowsocks · "+(i+1);
+            new AlertDialog.Builder(this).setTitle("Choose a Shadowsocks entry").setItems(labels,(d,position)->{controller.savePreferences(controller.preferences().withEntryKey(position==0?"":ServerRepository.key(entries.get(position-1))));buildSettings(box,dialog);}).setNegativeButton("Cancel",null).show();});box.addView(chain);
+        box.addView(label("Two-hop supports TCP exits (Shadowsocks, VLESS, Trojan). Automatic tests pause. The entry sees your IP; the exit receives traffic through it. Different operators are not verified; correlation remains possible. Cached speeds describe single-hop connections, not the chain.",12,MUTED,false));
         if(prefs.advancedMode){
-            toggle(box,"Nearby locations first","Prioritize nearby servers when location is available",prefs.nearbyFirst,value->controller.savePreferences(controller.preferences().withNearbyFirst(value)));
             TextView protocols=label("Protocols",15,TEXT,true);margin(protocols,0,16,0,4);box.addView(protocols);
             String[][] choices={{"shadowsocks","Shadowsocks","Encrypted proxy"},{"vless","VLESS","TLS / REALITY camouflage"},{"trojan","Trojan","TLS camouflage"},{"hysteria2","Hysteria 2","Encrypted QUIC"},{"tuic","TUIC","TLS over QUIC"}};
             for(String[] choice:choices)toggle(box,choice[1],choice[2],prefs.enabledProtocols.contains(choice[0]),value->{Set<String> enabled=new HashSet<>(controller.preferences().enabledProtocols);if(value)enabled.add(choice[0]);else enabled.remove(choice[0]);controller.savePreferences(controller.preferences().withEnabledProtocols(enabled));filter();});
             TextView note=label("Protocol changes apply to future connections. Your current connection stays active.",12,MUTED,false);box.addView(note);
             Button diagnostics=new Button(this);diagnostics.setText("Copy diagnostics");diagnostics.setAllCaps(false);diagnostics.setOnClickListener(v->copyDiagnostics());box.addView(diagnostics);
         }
+        box.addView(label("Always enforced: public-network feed targets, supported modern encrypted protocols, TLS certificate validation, encrypted saved credentials, and APK checksum / publisher-signature verification. These protections cannot be disabled.",12,MUTED,false));
+        box.addView(label("Android controls fail-closed blocking. Enable Always-on VPN and Block connections without VPN in Android’s VPN settings to stop other apps from falling back to a direct connection.",12,MUTED,false));
+        Button strict=new Button(this);strict.setText("Device VPN & strict blocking");strict.setAllCaps(false);strict.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Android strict blocking").setMessage("Connect successfully once, then open Android Settings → VPN → Moondrop and enable Always-on VPN plus Block connections without VPN. Android enforces blocking for other apps when the tunnel stops; Moondrop restores only the exact previously approved pinned route, without trying other servers. If restoration fails, open Moondrop and choose another connection. Moondrop is excluded from its tunnel for transport/feed access; Android may block its feed refreshes while lockdown is active. Turning off Android’s blocking setting allows normal direct traffic again.").setPositiveButton("Open VPN settings",(d,w)->{try{startActivity(new Intent("android.settings.VPN_SETTINGS"));}catch(RuntimeException unavailable){Toast.makeText(this,"Open VPN settings in Android Settings",Toast.LENGTH_LONG).show();}}).setNegativeButton("Close",null).show());box.addView(strict);
+        Button paste=new Button(this);paste.setText("Import server links");paste.setAllCaps(false);paste.setOnClickListener(v->{
+            EditText input=new EditText(this);input.setHint("Paste ss://, vless://, trojan://, hy2:// or tuic:// links");input.setMinLines(3);input.setMaxLines(8);
+            new AlertDialog.Builder(this).setTitle("Import servers offline").setMessage("Paste one encrypted server link per line. No download or connection is made. Public endpoints only; private network profiles are rejected. The server operator sees your IP when you connect.").setView(input).setPositiveButton("Import",(d,w)->{try{int count=controller.importProfiles(input.getText().toString());Toast.makeText(this,"Imported "+count+" servers",Toast.LENGTH_LONG).show();filter();}catch(IllegalArgumentException failure){Toast.makeText(this,failure.getMessage(),Toast.LENGTH_LONG).show();}}).setNegativeButton("Cancel",null).show();
+        });box.addView(paste);
+        Button erase=new Button(this);erase.setText("Erase saved profiles & test history");erase.setAllCaps(false);erase.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Erase saved data?").setMessage("Deletes saved proxy credentials and speed history. Your active VPN stays connected until you disconnect. Refresh later to load profiles again.").setPositiveButton("Erase",(d,w)->controller.eraseSavedProfiles()).setNegativeButton("Cancel",null).show());box.addView(erase);
         Button licenses=new Button(this);licenses.setText("Open-source licenses");licenses.setAllCaps(false);licenses.setOnClickListener(v->showLicenses());box.addView(licenses);
     }
     private void showLicenses(){
@@ -214,7 +269,7 @@ public final class MainActivity extends Activity implements AppController.Listen
         if(m==null)return "Not tested yet";if(!m.verified())return "Unavailable · "+age(m.checkedAt);
         String value=m.latencyMs+" ms";
         if(controller.preferences().advancedMode&&m.bytesPerSecond>0)value+=" · "+String.format(Locale.ROOT,"%.1f Mbps",m.bytesPerSecond*8.0/1_000_000);
-        return value+" · "+age(m.checkedAt)+(m.fresh()?"":" · needs recheck");
+        return value+(controller.preferences().entryKey.isEmpty()?"":" · single-hop cache")+" · "+age(m.checkedAt)+(m.fresh()?"":" · needs recheck");
     }
     static String flag(String country){
         if(country==null||!country.matches("(?i)[a-z]{2}")||!ISO_COUNTRIES.contains(country.toUpperCase(Locale.ROOT)))return "🏳️?";

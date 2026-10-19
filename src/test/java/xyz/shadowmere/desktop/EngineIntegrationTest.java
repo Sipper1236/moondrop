@@ -20,7 +20,7 @@ class EngineIntegrationTest {
         return Path.of(core);
     }
     private Server server() throws Exception {
-        return new Server("test","127.0.0.1",freePort(),"chacha20-ietf-poly1305","test-only-password","","Local test","",true);
+        return new Server("manual:test","127.0.0.1",freePort(),"chacha20-ietf-poly1305","test-only-password","","Local test","",true);
     }
     private Path ownership() throws Exception {
         try(var files=Files.list(directory)) {
@@ -61,7 +61,7 @@ class EngineIntegrationTest {
             long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);boolean ready=false;
             while(System.nanoTime()<deadline) {try(Socket s=new Socket("127.0.0.1",ssPort)){ready=true;break;}catch(Exception e){Thread.sleep(50);}}
             assertTrue(ready,"Local Shadowsocks test server did not start");
-            Server server=new Server("test","127.0.0.1",ssPort,"chacha20-ietf-poly1305","test-only-password","","Local test","",true);
+            Server server=new Server("manual:test","127.0.0.1",ssPort,"chacha20-ietf-poly1305","test-only-password","","Local test","",true);
             try(ProxyEngine client=new ProxyEngine(Path.of(core),directory)) {
                 client.start(Map.of(localPort,server),ignored->{});
                 URL url=URI.create("http://127.0.0.1:"+target.getAddress().getPort()+"/").toURL();
@@ -79,6 +79,63 @@ class EngineIntegrationTest {
             }
             try(var files=Files.list(directory)){assertTrue(files.noneMatch(p->p.getFileName().toString().startsWith("session-")));}
         } finally {remote.destroy();if(!remote.waitFor(2,TimeUnit.SECONDS))remote.destroyForcibly();target.stop(0);}
+    }
+    @Test void genuineTwoHopRequiresEntryAndExit() throws Exception {
+        Path core=core();
+        int entryPort=freePort(),exitPort=freePort();
+        HttpServer target=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        target.createContext("/",exchange->{byte[] b="two-encrypted-hops".getBytes();exchange.sendResponseHeaders(200,b.length);exchange.getResponseBody().write(b);exchange.close();});
+        target.start();
+        Process[] remotes=new Process[2];
+        try {
+            for(int n=0;n<2;n++) {
+                int port=n==0?entryPort:exitPort;
+                Path config=directory.resolve("hop-"+n+".json");
+                Files.writeString(config,"""
+                    {"log":{"level":"error"},"inbounds":[{"type":"shadowsocks","listen":"127.0.0.1","listen_port":%d,
+                    "method":"chacha20-ietf-poly1305","password":"test-only-password"}],"outbounds":[{"type":"direct"}]}
+                    """.formatted(port));
+                remotes[n]=new ProcessBuilder(core.toString(),"run","-c",config.toString()).redirectErrorStream(true).redirectOutput(directory.resolve("hop-"+n+".log").toFile()).start();
+                long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5);boolean ready=false;
+                while(System.nanoTime()<deadline) {try(Socket socket=new Socket("127.0.0.1",port)){ready=true;break;}catch(IOException pending){Thread.sleep(50);}}
+                assertTrue(ready,"Encrypted hop fixture failed to start");
+            }
+            Server entry=new Server("manual:entry","127.0.0.1",entryPort,"chacha20-ietf-poly1305","test-only-password","","Entry fixture","",true);
+            Server exit=new Server("manual:exit","127.0.0.1",exitPort,"chacha20-ietf-poly1305","test-only-password","","Exit fixture","",true);
+            int establishedPort=freePort(),testPort=freePort();
+            try(ProxyEngine established=new ProxyEngine(core,directory.resolve("established"))) {
+                established.start(Map.of(establishedPort,entry),ignored->{});
+                try(ProxyEngine test=new ProxyEngine(core,directory.resolve("candidate-test"))) {
+                    test.startViaLocalProxy(testPort,exit,establishedPort,ignored->{});
+                    assertEquals("two-encrypted-hops",requestThroughProxy(testPort,target.getAddress().getPort()));
+                }
+                assertTrue(established.alive(),"Closing a candidate test must retain the established connection");
+                assertEquals("two-encrypted-hops",requestThroughProxy(establishedPort,target.getAddress().getPort()));
+                try(ProxyEngine test=new ProxyEngine(core,directory.resolve("candidate-no-fallback"))) {
+                    test.startViaLocalProxy(testPort,exit,establishedPort,ignored->{});
+                    established.close();
+                    assertThrows(IOException.class,()->requestThroughProxy(testPort,target.getAddress().getPort()));
+                }
+            }
+            try(ProxyEngine client=new ProxyEngine(core,directory)) {
+                client.startChain(entry,exit,ignored->{});
+                assertEquals("two-encrypted-hops",requestThroughChain(target.getAddress().getPort()));
+                remotes[0].destroyForcibly();remotes[0].waitFor(2,TimeUnit.SECONDS);
+                // A new HTTP connection must fail after the entry dies; the live exit cannot be contacted directly.
+                assertThrows(IOException.class,()->requestThroughChain(target.getAddress().getPort()));
+            }
+            assertListenerClosed(ProxyEngine.PORT);
+        } finally {
+            for(Process remote:remotes) if(remote!=null) {remote.destroyForcibly();remote.waitFor(2,TimeUnit.SECONDS);}
+            target.stop(0);
+        }
+    }
+    private String requestThroughChain(int targetPort) throws IOException {return requestThroughProxy(ProxyEngine.PORT,targetPort);}
+    private String requestThroughProxy(int proxyPort,int targetPort) throws IOException {
+        URL url=URI.create("http://127.0.0.1:"+targetPort+"/").toURL();
+        HttpURLConnection request=(HttpURLConnection)url.openConnection(new Proxy(Proxy.Type.HTTP,new InetSocketAddress("127.0.0.1",proxyPort)));
+        request.setConnectTimeout(3000);request.setReadTimeout(3000);
+        try {return new String(request.getInputStream().readAllBytes());}finally{request.disconnect();}
     }
     @Test void occupiedPortProducesActionableError() throws Exception {
         try(ServerSocket socket=new ServerSocket(0,0,InetAddress.getByName("127.0.0.1"))) {
@@ -103,7 +160,7 @@ class EngineIntegrationTest {
         String core=System.getProperty("engine.test.path","");
         Assumptions.assumeTrue(!core.isEmpty()&&Files.isExecutable(Path.of(core)));
         int port=freePort();
-        Server server=new Server("test","127.0.0.1",freePort(),"chacha20-ietf-poly1305","test-only-password","","Local test","",true);
+        Server server=new Server("manual:test","127.0.0.1",freePort(),"chacha20-ietf-poly1305","test-only-password","","Local test","",true);
         try(ProxyEngine engine=new ProxyEngine(Path.of(core),directory)) {
             engine.start(Map.of(port,server),ignored->{});
             assertTrue(engine.alive());

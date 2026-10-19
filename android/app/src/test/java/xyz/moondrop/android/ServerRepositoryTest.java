@@ -6,6 +6,7 @@ import org.junit.rules.TemporaryFolder;
 import java.util.List;
 import java.util.Map;
 import xyz.shadowmere.desktop.Server;
+import xyz.shadowmere.desktop.PublicEndpoints;
 import static org.junit.Assert.*;
 
 public class ServerRepositoryTest {
@@ -47,5 +48,40 @@ public class ServerRepositoryTest {
         Server second=new Server("collector:other-prefix",first.host(),first.port(),first.method(),first.password(),"GB","different label","",true);
         String fingerprint=ServerRepository.key(first);assertEquals(fingerprint,ServerRepository.key(second));
         assertTrue(fingerprint.matches("[0-9a-f]{64}"));assertFalse(fingerprint.contains(first.password()));
+    }
+    @Test public void untrustedFeedsCannotContainPrivateEndpoints() {
+        for(String host:List.of("127.0.0.1","192.168.1.1","169.254.169.254","[::1]","[::ffff:127.0.0.1]"))
+            assertTrue(host,ServerRepository.parseFeed("ss://aes-256-gcm:private@"+host+":443","test:").isEmpty());
+    }
+    @Test public void eraseRemovesCredentialsAndMeasurements() throws Exception {
+        java.io.File file=temporary.newFile("erase.json");ServerRepository repository=new ServerRepository(file);
+        repository.save(List.of(server("secret-marker")),Map.of());repository.erase();assertFalse(file.exists());assertTrue(repository.load().servers().isEmpty());
+    }
+    @Test public void legacyManualMarkerCannotGrantPrivateNetworkAccess() throws Exception {
+        java.io.File file=temporary.newFile("legacy.json");
+        Server forged=new Server("manual:forged-feed","127.0.0.1",8388,"aes-256-gcm","legacy-secret","","","",true);
+        com.google.gson.JsonObject root=new com.google.gson.JsonObject();
+        root.add("servers",new com.google.gson.Gson().toJsonTree(List.of(forged)));
+        root.add("measurements",new com.google.gson.JsonObject());
+        try(java.io.FileOutputStream output=new java.io.FileOutputStream(file)){output.write(root.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+        ServerRepository repository=new ServerRepository(file,new PlaintextTestCipher());
+        assertTrue(repository.load().servers().isEmpty());
+    }
+    @Test public void legacyManualDnsEntryLosesPrivateNetworkExemption() throws Exception {
+        java.io.File file=temporary.newFile("legacy-dns.json");
+        Server forged=new Server("manual:forged-feed","example.invalid",8388,"aes-256-gcm","legacy-secret","","","",true);
+        com.google.gson.JsonObject root=new com.google.gson.JsonObject();
+        root.add("servers",new com.google.gson.Gson().toJsonTree(List.of(forged)));
+        root.add("measurements",new com.google.gson.JsonObject());
+        try(java.io.FileOutputStream output=new java.io.FileOutputStream(file)){output.write(root.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));}
+        ServerRepository repository=new ServerRepository(file,new PlaintextTestCipher());
+        Server migrated=repository.load().servers().get(0);
+        assertTrue(migrated.id().startsWith("legacy-remote:"));
+        assertThrows(java.io.IOException.class,()->PublicEndpoints.checkedAddress(migrated,
+                new java.net.InetAddress[]{java.net.InetAddress.getByName("127.0.0.1")}));
+    }
+    private static final class PlaintextTestCipher implements CacheCipher {
+        @Override public java.io.OutputStream encrypt(java.io.OutputStream target){return target;}
+        @Override public java.io.InputStream decrypt(java.io.InputStream source){return source;}
     }
 }

@@ -11,52 +11,72 @@ import java.util.concurrent.*;
 import javax.net.ssl.HttpsURLConnection;
 import xyz.shadowmere.desktop.ProxyLinks;
 import xyz.shadowmere.desktop.Server;
+import xyz.shadowmere.desktop.PublicEndpoints;
 
 /** Private, atomic cache of connection profiles and locally measured results. */
 public final class ServerRepository {
     private static final int MAX_BYTES=8*1024*1024;
     static final int MAX_CACHE_BYTES=40*1024*1024, MAX_CACHE_ENTRIES=100_000;
-    private static final Set<String> CIPHERS=Set.of("2022-blake3-aes-128-gcm","2022-blake3-aes-256-gcm","2022-blake3-chacha20-poly1305","aes-128-gcm","aes-192-gcm","aes-256-gcm","chacha20-ietf-poly1305","xchacha20-ietf-poly1305","aes-128-ctr","aes-192-ctr","aes-256-ctr","aes-128-cfb","aes-192-cfb","aes-256-cfb","rc4-md5","chacha20-ietf","xchacha20");
+    private static final Set<String> CIPHERS=Set.of("2022-blake3-aes-128-gcm","2022-blake3-aes-256-gcm","2022-blake3-chacha20-poly1305","aes-128-gcm","aes-192-gcm","aes-256-gcm","chacha20-ietf-poly1305","xchacha20-ietf-poly1305");
     private static final Map<Server,String> KEYS=Collections.synchronizedMap(new WeakHashMap<>());
     private final File cache;
+    private final CacheCipher cipher;
+    private boolean unreadable;
     private final Gson gson=new Gson();
     public record Snapshot(List<Server> servers,Map<String,Measurement> measurements) { }
-    public ServerRepository(Context context) {cache=new File(context.getFilesDir(),"servers-v1.json");}
-    ServerRepository(File file) {cache=file;}
+    public ServerRepository(Context context) {cache=new File(context.getFilesDir(),"servers-v1.json");cipher=new ProfileCipher();}
+    ServerRepository(File file) {this(file,null);}
+    ServerRepository(File file,CacheCipher cipher) {cache=file;this.cipher=cipher;}
+    public synchronized boolean cacheUnavailable(){return unreadable;}
+    public synchronized void erase() throws IOException {if(cache.exists()&&!cache.delete())throw new IOException("Could not erase saved profiles");File temp=new File(cache.getParentFile(),cache.getName()+".tmp");if(temp.exists()&&!temp.delete())throw new IOException("Could not erase temporary profiles");unreadable=false;}
     public static String key(Server server) {
         String existing=KEYS.get(server);if(existing!=null)return existing;
         try {byte[] digest=MessageDigest.getInstance("SHA-256").digest(server.outbound().toString().getBytes(StandardCharsets.UTF_8));StringBuilder hex=new StringBuilder(64);for(byte value:digest)hex.append(Character.forDigit((value >>> 4)&15,16)).append(Character.forDigit(value&15,16));String result=hex.toString();KEYS.put(server,result);return result;}
         catch(Exception failure) {throw new IllegalArgumentException("Invalid protected server");}
     }
     public synchronized Snapshot load() {
-        if(cache.length()>MAX_CACHE_BYTES)return new Snapshot(List.of(),Map.of());
-        try(InputStream input=new LimitedInputStream(new FileInputStream(cache),MAX_CACHE_BYTES);
+        if(cache.length()>MAX_CACHE_BYTES+64L){unreadable=true;return new Snapshot(List.of(),Map.of());}
+        boolean legacy=cache.exists()&&cipher!=null;
+        try {if(legacy)legacy=!ProfileCipher.encrypted(cache);}catch(IOException failure){unreadable=true;return new Snapshot(List.of(),Map.of());}
+        try(InputStream raw=new FileInputStream(cache);
+            InputStream input=new LimitedInputStream(cipher!=null&&!legacy?cipher.decrypt(raw):raw,MAX_CACHE_BYTES);
             Reader reader=new InputStreamReader(input,StandardCharsets.UTF_8)) {
             JsonObject root=JsonParser.parseReader(reader).getAsJsonObject();
             JsonArray rows=root.getAsJsonArray("servers");JsonObject values=root.getAsJsonObject("measurements");
             if(rows==null||values==null||rows.size()>MAX_CACHE_ENTRIES||values.size()>MAX_CACHE_ENTRIES)
                 return new Snapshot(List.of(),Map.of());
             List<Server> servers=new ArrayList<>();
-            for(JsonElement row:rows)try {Server server=gson.fromJson(row,Server.class);if(valid(server))servers.add(server);}catch(RuntimeException ignored){}
+            for(JsonElement row:rows)try {
+                Server server=gson.fromJson(row,Server.class);
+                // Legacy plaintext caches predate feed provenance. A feed could
+                // forge manual: IDs, so normalize them before validation and before
+                // the migrated snapshot is written back encrypted.
+                if(legacy&&PublicEndpoints.manual(server))server=asLegacyRemote(server);
+                if(valid(server))servers.add(server);
+            }catch(RuntimeException ignored){}
             Map<String,Measurement> measurements=new HashMap<>();
             for(Server server:servers) {String key=key(server);if(values.has(key))try {JsonObject value=values.getAsJsonObject(key);Measurement measurement=new Measurement(value.get("latencyMs").getAsLong(),value.get("checkedAt").getAsLong(),value.get("bytesPerSecond").getAsLong(),value.get("successes").getAsInt(),value.get("attempts").getAsInt()); if(measurement.attempts>0&&measurement.successes>=0&&measurement.successes<=measurement.attempts)measurements.put(key,measurement);}catch(RuntimeException ignored){}}
-            return new Snapshot(List.copyOf(servers),Map.copyOf(measurements));
-        }catch(Exception ignored) {return new Snapshot(List.of(),Map.of());}
+            Snapshot snapshot=new Snapshot(List.copyOf(servers),Map.copyOf(measurements));
+            if(legacy)save(snapshot.servers(),snapshot.measurements());
+            return snapshot;
+        }catch(Exception ignored) {unreadable=cache.exists();return new Snapshot(List.of(),Map.of());}
     }
     public synchronized void save(List<Server> servers,Map<String,Measurement> measurements) throws IOException {
         save(servers,measurements,MAX_CACHE_BYTES);
     }
     synchronized void save(List<Server> servers,Map<String,Measurement> measurements,int byteLimit) throws IOException {
+        if(unreadable)throw new IOException("Existing saved profiles could not be unlocked; erase them explicitly before replacement");
         if(servers.size()>MAX_CACHE_ENTRIES||measurements.size()>MAX_CACHE_ENTRIES)
             throw new IOException("Server cache is too large");
         File temp=new File(cache.getParentFile(),cache.getName()+".tmp");boolean replaced=false;
         try {
             try(FileOutputStream file=new FileOutputStream(temp);
-                OutputStream bounded=new LimitedOutputStream(file,byteLimit);
+                OutputStream encrypted=cipher==null?file:cipher.encrypt(file);
+                OutputStream bounded=new LimitedOutputStream(encrypted,byteLimit);
                 com.google.gson.stream.JsonWriter writer=new com.google.gson.stream.JsonWriter(new OutputStreamWriter(bounded,StandardCharsets.UTF_8))) {
                 writer.beginObject();writer.name("servers");gson.toJson(servers,List.class,writer);
                 writer.name("measurements");gson.toJson(measurements,Map.class,writer);writer.endObject();
-                writer.flush();file.getFD().sync();
+                writer.flush();
             }
             if(!temp.renameTo(cache))throw new IOException("Could not save server cache");
             replaced=true;
@@ -75,26 +95,27 @@ public final class ServerRepository {
         @Override public void write(int value) throws IOException {if(--remaining<0)throw new IOException("Server cache is too large");out.write(value);}
         @Override public void write(byte[] buffer,int offset,int length) throws IOException {if((remaining-=length)<0)throw new IOException("Server cache is too large");out.write(buffer,offset,length);}
     }
-    public List<Server> fetch() throws Exception {
-        List<Callable<List<Server>>> sources=new ArrayList<>();sources.add(this::shadowmere);
-        sources.add(()->parseFeed(download("https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/ss.txt"),"gfp:"));
-        sources.add(()->parseFeed(download("https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/ss"),"collector:"));
-        sources.add(()->parseFeed(download("https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt"),"morpheus:"));
-        for(String protocol:List.of("hy2","tuic"))sources.add(()->parseFeed(download("https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/"+protocol+".txt"),"gfp:"));
-        sources.add(()->parseFeed(download("https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/mix"),"collector:"));
-        for(String protocol:List.of("vless","trojan","hysteria2","tuic"))sources.add(()->parseFeed(download("https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/"+protocol+".txt"),"morpheus:"));
-        sources.add(()->parseFeed(download("https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt"),"aggregator:"));
-        sources.add(()->parseFeed(download("https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt"),"epodonios:"));
+    public List<Server> fetch() throws Exception {return fetch(Proxy.NO_PROXY);}
+    public List<Server> fetch(Proxy proxy) throws Exception {
+        List<Callable<List<Server>>> sources=new ArrayList<>();sources.add(()->shadowmere(proxy));
+        sources.add(()->parseFeed(download(proxy,"https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/ss.txt"),"gfp:"));
+        sources.add(()->parseFeed(download(proxy,"https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/ss"),"collector:"));
+        sources.add(()->parseFeed(download(proxy,"https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/shadowsocks.txt"),"morpheus:"));
+        for(String protocol:List.of("hy2","tuic"))sources.add(()->parseFeed(download(proxy,"https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/"+protocol+".txt"),"gfp:"));
+        sources.add(()->parseFeed(download(proxy,"https://raw.githubusercontent.com/MhdiTaheri/V2rayCollector/main/sub/mix"),"collector:"));
+        for(String protocol:List.of("vless","trojan","hysteria2","tuic"))sources.add(()->parseFeed(download(proxy,"https://raw.githubusercontent.com/morpheusadam/v2ray-config/main/subs/bundles/"+protocol+".txt"),"morpheus:"));
+        sources.add(()->parseFeed(download(proxy,"https://raw.githubusercontent.com/mahdibland/V2RayAggregator/master/sub/sub_merge.txt"),"aggregator:"));
+        sources.add(()->parseFeed(download(proxy,"https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt"),"epodonios:"));
         ExecutorService workers=Executors.newFixedThreadPool(6);
         try {Map<String,Server> unique=new LinkedHashMap<>();for(Future<List<Server>> result:workers.invokeAll(sources,45,TimeUnit.SECONDS))try {for(Server server:result.get())unique.putIfAbsent(key(server),server);}catch(ExecutionException|CancellationException ignored){} if(unique.isEmpty())throw new IOException("Server sources are unavailable. Your saved servers are still available.");return List.copyOf(unique.values());}
         finally {workers.shutdownNow();}
     }
-    private List<Server> shadowmere() throws Exception {
+    private List<Server> shadowmere(Proxy proxy) throws Exception {
         List<Server> result=new ArrayList<>();int pages=1;
         for(int page=1;page<=pages;page++) {
-            JsonElement root=JsonParser.parseString(download("https://shadowmere.xyz/api/proxies/?is_active=true&page_size=200&page="+page));
+            JsonElement root=JsonParser.parseString(download(proxy,"https://shadowmere.xyz/api/proxies/?is_active=true&page_size=200&page="+page));
             JsonArray rows;if(root.isJsonArray())rows=root.getAsJsonArray();else {JsonObject object=root.getAsJsonObject();rows=object.getAsJsonArray("results");if(object.has("total_pages"))pages=Math.min(100,object.get("total_pages").getAsInt());else if(object.has("next")&&!object.get("next").isJsonNull())pages=Math.min(100,page+1);}
-            for(JsonElement item:rows)try {JsonObject row=item.getAsJsonObject();if(row.has("is_active")&&!row.get("is_active").getAsBoolean())continue;Server server=ProxyLinks.parse(text(row,"id"),text(row,"url"),text(row,"location_country_code"),"",text(row,"last_checked"),true);if(valid(server))result.add(server);}catch(RuntimeException ignored){}
+            for(JsonElement item:rows)try {JsonObject row=item.getAsJsonObject();if(row.has("is_active")&&!row.get("is_active").getAsBoolean())continue;Server server=ProxyLinks.parse("shadowmere:"+text(row,"id"),text(row,"url"),text(row,"location_country_code"),"",text(row,"last_checked"),true);if(valid(server))result.add(server);}catch(RuntimeException ignored){}
             if(page<pages)Thread.sleep(400);
         }return result;
     }
@@ -113,10 +134,18 @@ public final class ServerRepository {
             if(!CIPHERS.contains(server.method()))return false;
             if(server.method().startsWith("2022-"))try {int length=server.method().equals("2022-blake3-aes-128-gcm")?16:32;for(String part:server.password().split(":",-1))if(Base64.getDecoder().decode(part).length!=length)return false;}catch(RuntimeException invalid){return false;}
         }
-        try {server.outbound();return true;}catch(RuntimeException invalid){return false;}
+        try {
+            server.outbound();
+            PublicEndpoints.requirePublicLiteral(server);
+            return true;
+        }catch(RuntimeException invalid){return false;}
     }
-    static String download(String address) throws IOException {
-        HttpsURLConnection connection=(HttpsURLConnection)new URL(address).openConnection();connection.setConnectTimeout(8000);connection.setReadTimeout(15000);connection.setRequestProperty("User-Agent","Moondrop-Android");connection.setInstanceFollowRedirects(false);
+    private static Server asLegacyRemote(Server server) {
+        return new Server("legacy-remote:"+server.id(),server.host(),server.port(),server.method(),server.password(),server.country(),server.location(),server.lastChecked(),server.active(),server.protocol(),server.profileJson());
+    }
+    static String download(String address) throws IOException {return download(Proxy.NO_PROXY,address);}
+    static String download(Proxy proxy,String address) throws IOException {
+        HttpsURLConnection connection=(HttpsURLConnection)new URL(address).openConnection(proxy);connection.setConnectTimeout(8000);connection.setReadTimeout(15000);connection.setRequestProperty("User-Agent","Moondrop-Android");connection.setInstanceFollowRedirects(false);
         try {if(connection.getResponseCode()!=200)throw new IOException("Server source unavailable");try(InputStream input=connection.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buffer=new byte[8192];int count;while((count=input.read(buffer))!=-1){if(Thread.currentThread().isInterrupted())throw new java.io.InterruptedIOException();if(out.size()+count>MAX_BYTES)throw new IOException("Server source too large");out.write(buffer,0,count);}return out.toString(StandardCharsets.UTF_8.name());}}finally {connection.disconnect();}
     }
     private static String decode(String text) {

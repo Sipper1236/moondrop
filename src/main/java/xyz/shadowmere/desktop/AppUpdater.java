@@ -20,10 +20,14 @@ public final class AppUpdater {
     private static final long MAX_JAR = 64L * 1024 * 1024;
     private static final Pattern VERSION = Pattern.compile("[vV]?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?");
     private final Path directory;
+    private final PublicKey signingKey;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
         .followRedirects(HttpClient.Redirect.NORMAL).build();
-    public record Release(String version, String name, URI page, URI download, String sha256) { }
-    public AppUpdater(Path dataDir) { directory = dataDir.resolve("updates"); }
+    public record Release(String version, String name, URI page, URI download, String sha256, String manifest, String signature) {
+        public Release(String version, String name, URI page, URI download, String sha256) { this(version,name,page,download,sha256,"",""); }
+    }
+    public AppUpdater(Path dataDir) { this(dataDir, ReleaseSignatures.trustedKey()); }
+    AppUpdater(Path dataDir, PublicKey key) { directory = dataDir.resolve("updates"); signingKey = key; }
     public static String currentVersion() {
         String version = AppUpdater.class.getPackage().getImplementationVersion();
         return version == null || version.isBlank() ? "0.6.0" : version;
@@ -42,19 +46,22 @@ public final class AppUpdater {
             candidates.sort((a, b) -> compareVersions(b.getKey().version(), a.getKey().version()));
             for (var candidate : candidates) {
                 Release release = candidate.getKey();
-                if (!release.sha256().isEmpty()) return Optional.of(release);
                 String tag = candidate.getValue().get("tag_name").getAsString();
+                URI manifestUri = null, signatureUri = null;
                 for (JsonElement assetElement : candidate.getValue().getAsJsonArray("assets")) {
                     if (!assetElement.isJsonObject()) continue;
                     JsonObject asset = assetElement.getAsJsonObject();
-                    if (!"SHA256SUMS".equals(string(asset, "name"))) continue;
-                    URI sums = trustedAsset(string(asset, "browser_download_url"), tag, "SHA256SUMS");
-                    if (sums == null) continue;
-                    String checksum = checksum(new String(fetch(sums, 16384, 12), java.nio.charset.StandardCharsets.UTF_8));
-                    if (checksum != null) return Optional.of(new Release(release.version(), release.name(), release.page(), release.download(), checksum));
+                    String name = string(asset, "name");
+                    if (ReleaseSignatures.MANIFEST.equals(name)) manifestUri = trustedAsset(string(asset,"browser_download_url"),tag,name);
+                    if (ReleaseSignatures.SIGNATURE.equals(name)) signatureUri = trustedAsset(string(asset,"browser_download_url"),tag,name);
                 }
+                if (manifestUri == null || signatureUri == null) continue;
+                byte[] manifest = fetch(manifestUri,65536,12), signature = fetch(signatureUri,64,12);
+                String digest = ReleaseSignatures.verify(manifest,signature,release.version(),"moondrop.jar",signingKey);
+                return Optional.of(new Release(release.version(),release.name(),release.page(),release.download(),digest,
+                    Base64.getEncoder().encodeToString(manifest),Base64.getEncoder().encodeToString(signature)));
             }
-            if (!candidates.isEmpty()) throw new IOException("The update has no verified checksum. Please try again after the release is ready.");
+            if (!candidates.isEmpty()) throw new IOException("The update has no publisher-signed manifest. Install a signed release from the project page.");
             return Optional.empty();
         } catch (InterruptedException cancellation) { Thread.currentThread().interrupt(); throw cancellation; }
         catch (IOException e) { throw friendly(e, "Could not check for updates. Check your internet connection and try again."); }
@@ -107,11 +114,11 @@ public final class AppUpdater {
     }
 
     public Path download(Release release, Consumer<String> progress) throws Exception {
-        requireTrusted(release);
+        requireTrusted(release, signingKey);
         try {
             Path staged = directory.resolve("moondrop-" + release.version() + ".jar");
             if (Files.exists(staged, LinkOption.NOFOLLOW_LINKS)) {
-                if (validCached(staged, release)) {
+                if (validCached(staged, release, signingKey)) {
                     progress.accept("Update already downloaded and verified");
                     return staged;
                 }
@@ -128,7 +135,9 @@ public final class AppUpdater {
         catch (IOException e) { throw friendly(e, "Could not download the update. Check your internet connection and try again."); }
     }
 
-    static boolean validCached(Path path, Release release) throws IOException {
+    static boolean validCached(Path path, Release release) throws IOException { return validCached(path,release,ReleaseSignatures.trustedKey()); }
+    static boolean validCached(Path path, Release release, PublicKey key) throws IOException {
+        requireTrusted(release, key);
         if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.size(path) > MAX_JAR) return false;
         try (InputStream input = Files.newInputStream(path)) {
             MessageDigest digest;
@@ -148,7 +157,7 @@ public final class AppUpdater {
 
     /** Package seam for integrity tests; production calls this only after a trusted HTTPS response. */
     Path stage(Release release, InputStream input, Consumer<String> progress) throws IOException {
-        requireTrusted(release);
+        requireTrusted(release, signingKey);
         Files.createDirectories(directory);
         Path temp = Files.createTempFile(directory, ".moondrop-update-", ".part");
         try {
@@ -174,13 +183,18 @@ public final class AppUpdater {
             validateJar(temp, release.version());
             if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("Update download cancelled.");
             Path destination = directory.resolve("moondrop-" + release.version() + ".jar");
+            Files.write(destination.resolveSibling(destination.getFileName()+".manifest"),Base64.getDecoder().decode(release.manifest()));
+            Files.write(destination.resolveSibling(destination.getFileName()+".sig"),Base64.getDecoder().decode(release.signature()));
             Files.move(temp, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             return destination;
         } finally { Files.deleteIfExists(temp); }
     }
 
-    private static void requireTrusted(Release release) throws IOException {
+    private static void requireTrusted(Release release, PublicKey signingKey) throws IOException {
         try {
+            String authenticated = ReleaseSignatures.verify(Base64.getDecoder().decode(release.manifest()),
+                Base64.getDecoder().decode(release.signature()),release.version(),"moondrop.jar",signingKey);
+            if (!authenticated.equals(release.sha256())) throw new IOException("The update digest is not publisher-signed.");
             versionParts(release.version());
             if (!release.version().matches("[0-9A-Za-z.+-]+") || release.version().startsWith("v") || release.version().startsWith("V")) throw new IllegalArgumentException();
             String path = release.download().getRawPath();
