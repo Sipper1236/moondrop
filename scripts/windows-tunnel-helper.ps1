@@ -186,7 +186,7 @@ public static class MoondropWfp {
  static readonly Guid Sub=new Guid("f16e7c41-55aa-4f64-9239-cedc9ddc25c0");
  static readonly Guid V4=new Guid("c38d57d1-05a7-4c33-904f-7fbceee60e82"),V6=new Guid("4a72393b-319f-44bc-84c3-ba54dcb3b6b4");
  static readonly Guid R4=new Guid("e1cd9fe7-f4b5-4273-96c0-592e487b8650"),R6=new Guid("a3b42c97-9f04-4672-b87e-cee9c483257f");
- static readonly Guid Remote=new Guid("b235ae9a-1d64-49b8-a44c-5ff3d9095045"),Port=new Guid("c35a604d-d22b-4e1a-91b4-68f674ee674b"),IcmpType=new Guid("0c1ba1af-5765-453f-af22-a8f791ac775b"),App=new Guid("d78e1e87-8644-4ea5-9437-d809ecefc971"),LocalInterface=new Guid("4cd62a49-59c3-4969-b7f3-bda5d32890a4"),Flags=new Guid("632ce23b-5167-435c-86d7-e903684aa80c"),Protocol=new Guid("3971ef2b-623e-4f9a-8cb1-6e79b806b9a7");
+ static readonly Guid Remote=new Guid("b235ae9a-1d64-49b8-a44c-5ff3d9095045"),Port=new Guid("c35a604d-d22b-4e1a-91b4-68f674ee674b"),LocalPort=new Guid("0c1ba1af-5765-453f-af22-a8f791ac775b"),App=new Guid("d78e1e87-8644-4ea5-9437-d809ecefc971"),LocalInterface=new Guid("4cd62a49-59c3-4969-b7f3-bda5d32890a4"),Flags=new Guid("632ce23b-5167-435c-86d7-e903684aa80c"),Protocol=new Guid("3971ef2b-623e-4f9a-8cb1-6e79b806b9a7");
  static Guid Key(int index){return new Guid("38916812-a19f-4d4c-b54e-"+index.ToString("x12"));}
  static void Check(uint result){if(result!=0)throw new Win32Exception(unchecked((int)result),"Windows tunnel filtering operation failed ("+result.ToString("x")+")");}
  static IntPtr Open(){IntPtr engine;Check(FwpmEngineOpen0(null,10,IntPtr.Zero,IntPtr.Zero,out engine));return engine;}
@@ -223,14 +223,16 @@ public static class MoondropWfp {
    var endpoint=Address(address,mem);var appCondition=new Condition{key=App,value=new Value{type=12,value=new Union{pointer=app}}};
    Add(e,4,IPAddress.Parse(address).AddressFamily==System.Net.Sockets.AddressFamily.InterNetwork?V4:V6,true,15,endpoint,C(Port,2,port),appCondition);
    if(tunnelIndex!=0){ulong luid;Check(ConvertInterfaceIndexToLuid(tunnelIndex,out luid));IntPtr lp=Allocate(BitConverter.GetBytes(luid),mem);var c=new Condition{key=LocalInterface,value=new Value{type=4,value=new Union{pointer=lp}}};Add(e,5,V4,true,15,c);Add(e,6,V6,true,15,c);}
+   // DHCP exceptions constrain BOTH server and client ports; remote port alone
+   // would let unrelated UDP applications inherit an inbound bypass flow.
    // Essential local network control only; no general LAN/DNS bypass.
-   Add(e,7,V4,true,14,Address("255.255.255.255",mem),C(Protocol,1,17),C(Port,2,67));
-   Add(e,8,V6,true,14,Address("ff02::1:2",mem),C(Protocol,1,17),C(Port,2,547));
+   Add(e,7,V4,true,14,Address("255.255.255.255",mem),C(Protocol,1,17),C(Port,2,67),C(LocalPort,2,68));
+   Add(e,8,V6,true,14,Address("ff02::1:2",mem),C(Protocol,1,17),C(Port,2,547),C(LocalPort,2,546));
    // IPv6 neighbour discovery/router solicitation uses link-local multicast.
    // A masked ff02::/16 + fe80::/10 rule is restricted to ICMPv6 (protocol 58).
-   int controlKey=32;foreach(var prefix in new[]{new byte[]{0xff,2},new byte[]{0xfe,0x80}}){byte[] mask=new byte[17];Array.Copy(prefix,mask,2);mask[16]=(byte)(prefix[0]==0xff?16:10);var c=new Condition{key=Remote,value=new Value{type=257,value=new Union{pointer=Allocate(mask,mem)}}};foreach(ushort type in new ushort[]{133,134,135,136}){AddOne(e,controlKey,V6,true,14,c,C(Protocol,1,58),C(IcmpType,2,type));AddOne(e,controlKey+16,R6,true,14,c,C(Protocol,1,58),C(IcmpType,2,type));controlKey++;}}
-   AddOne(e,27,R4,true,14,C(Protocol,1,17),C(Port,2,67));
-   AddOne(e,28,R6,true,14,C(Protocol,1,17),C(Port,2,547));
+   int controlKey=32;foreach(var prefix in new[]{new byte[]{0xff,2},new byte[]{0xfe,0x80}}){byte[] mask=new byte[17];Array.Copy(prefix,mask,2);mask[16]=(byte)(prefix[0]==0xff?16:10);var c=new Condition{key=Remote,value=new Value{type=257,value=new Union{pointer=Allocate(mask,mem)}}};foreach(ushort type in new ushort[]{133,134,135,136}){AddOne(e,controlKey,V6,true,14,c,C(Protocol,1,58),C(LocalPort,2,type));AddOne(e,controlKey+16,R6,true,14,c,C(Protocol,1,58),C(LocalPort,2,type));controlKey++;}}
+   AddOne(e,27,R4,true,14,C(Protocol,1,17),C(Port,2,67),C(LocalPort,2,68));
+   AddOne(e,28,R6,true,14,C(Protocol,1,17),C(Port,2,547),C(LocalPort,2,546));
    Check(FwpmTransactionCommit0(e));
   }catch{FwpmTransactionAbort0(e);throw;}}
   finally{foreach(IntPtr p in mem)Marshal.FreeHGlobal(p);if(app!=IntPtr.Zero)FwpmFreeMemory0(ref app);FwpmEngineClose0(e);}
