@@ -1,0 +1,19 @@
+name: macOS tunnel policy and native syntax
+on:
+  push:
+    paths: ['scripts/macos-tunnel-helper.py', 'scripts/test-macos-tunnel.py', '.github/workflows/macos-tunnel.yml']
+  pull_request:
+    paths: ['scripts/macos-tunnel-helper.py', 'scripts/test-macos-tunnel.py', '.github/workflows/macos-tunnel.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test profiles, broker, DNS recovery, PF parsing and native engine configuration
+        env:
+          MOONDROP_MACOS_NATIVE_TESTS: '1'
+        run: python3 scripts/test-macos-tunnel.py

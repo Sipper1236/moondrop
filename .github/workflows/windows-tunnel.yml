@@ -1,0 +1,32 @@
+name: Windows tunnel security
+on:
+  pull_request:
+    paths:
+      - 'scripts/windows-tunnel-helper.ps1'
+      - 'scripts/test-windows-tunnel.ps1'
+      - '.github/workflows/windows-tunnel.yml'
+  push:
+    paths:
+      - 'scripts/windows-tunnel-helper.ps1'
+      - 'scripts/test-windows-tunnel.ps1'
+      - '.github/workflows/windows-tunnel.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Parse broker, compile WFP ABI, and reject unsafe profiles
+        shell: powershell
+        run: ./scripts/test-windows-tunnel.ps1
+      - name: Smoke test verified helper installation and private ACLs
+        shell: powershell
+        run: ./scripts/test-windows-tunnel.ps1 -InstallationIntegration
+      - name: Test persistent fail-closed IPv4, IPv6, UDP and explicit recovery
+        shell: powershell
+        # This runner is disposable. The test installs persistent WFP filters for
+        # a few seconds and removes ONLY Moondrop filters in a finally block.
+        run: ./scripts/test-windows-tunnel.ps1 -FirewallIntegration
