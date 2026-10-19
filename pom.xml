@@ -14,7 +14,7 @@
   <build><finalName>moondrop</finalName>
     <resources><resource><directory>${project.basedir}</directory><targetPath>META-INF/moondrop</targetPath><includes><include>scripts/linux-tunnel-helper.py</include><include>scripts/macos-tunnel-helper.py</include><include>scripts/windows-tunnel-helper.ps1</include></includes></resource><resource><directory>src/main/resources</directory></resource><resource><directory>${project.basedir}</directory><targetPath>META-INF/shadowmere</targetPath><includes><include>LICENSE</include><include>THIRD_PARTY.md</include></includes></resource></resources>
     <plugins>
-    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.0</version></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.16.0</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.3</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.1</version><executions><execution><phase>package</phase><goals><goal>shade</goal></goals><configuration>
       <createDependencyReducedPom>false</createDependencyReducedPom>
