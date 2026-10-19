@@ -112,7 +112,7 @@ jobs:
         run: mvn -B org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom -DoutputDirectory=dist -DoutputName=moondrop-sbom
       - name: Reject high-severity vulnerable dependencies
         run: python3 scripts/check-vulnerabilities.py dist/moondrop-sbom.json
-      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         if: github.event_name == 'push'
         with:
           subject-path: |
