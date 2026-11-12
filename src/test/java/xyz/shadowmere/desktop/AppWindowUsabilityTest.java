@@ -37,7 +37,7 @@ class AppWindowUsabilityTest {
         withWindow((window,actions) -> {
             window.setSystemProxySupported(true);window.setServers(List.of(SERVER));
             assertFalse(field(window,"enginePanel",JPanel.class).isVisible());
-            assertFalse(field(window,"proxyControls",JPanel.class).isVisible());
+            assertTrue(field(window,"proxyControls",JPanel.class).isVisible());
             saveAdvancedMode(window,true);
             assertTrue(actions.settings.advancedMode());
             assertTrue(field(window,"enginePanel",JPanel.class).isVisible());
