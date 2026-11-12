@@ -21,18 +21,18 @@ class BootstrapHistoryTest {
     @Test void disappearingFeedRetainsProvenEntryButNotArbitraryOldServers()throws Exception {
         Server entry=server("entry"),old=server("old"),fresh=server("fresh");
         BootstrapHistory history=new BootstrapHistory(data);history.succeeded(entry);
-        assertEquals(List.of(fresh,entry),history.retain(List.of(old,entry),List.of(fresh)));
+        assertEquals(List.of(fresh,entry),history.retain(List.of(old,entry),List.of(fresh),List.of("Shadowmere is unavailable.")));
         history.failed(entry);
         assertTrue(history.preferred(List.of(entry)).isEmpty());
-        assertEquals(List.of(entry),history.retain(List.of(entry),List.of()));
+        assertEquals(List.of(entry),history.retain(List.of(entry),List.of(),List.of("Shadowmere is unavailable.")));
         history.succeeded(entry);assertEquals(List.of(entry),history.preferred(List.of(entry)));
         history.erase();assertTrue(new BootstrapHistory(data).preferred(List.of(entry)).isEmpty());
     }
     @Test void feedDuplicateCannotEraseManualOwnership() {
         Server imported=server("manual:import"),remote=new Server("feed:duplicate",imported.host(),imported.port(),imported.method(),imported.password(),"US","","",true);
         BootstrapHistory history=new BootstrapHistory(data);
-        assertEquals(List.of(imported),history.retain(List.of(imported),List.of(remote)));
-        assertEquals(List.of(imported),history.retain(history.retain(List.of(imported),List.of(remote)),List.of()));
+        assertEquals(List.of(imported),history.retain(List.of(imported),List.of(remote),List.of()));
+        assertEquals(List.of(imported),history.retain(history.retain(List.of(imported),List.of(remote),List.of()),List.of(),List.of()));
     }
     @Test void fallbackHistoryIsBounded()throws Exception {
         BootstrapHistory history=new BootstrapHistory(data);List<Server> servers=new ArrayList<>();
