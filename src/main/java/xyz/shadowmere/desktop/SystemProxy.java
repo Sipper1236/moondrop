@@ -36,15 +36,17 @@ public final class SystemProxy implements AutoCloseable {
         """;
     private final Path snapshotFile;
     private final String platform;
+    private final LinuxSessionProxy linux;
 
     public SystemProxy(Path dataDir) {
         snapshotFile = dataDir.toAbsolutePath().resolve("system-proxy-recovery.json");
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        platform = os.startsWith("windows") ? "windows" : os.startsWith("mac") ? "macos" : "unsupported";
+        platform = os.startsWith("windows") ? "windows" : os.startsWith("mac") ? "macos" : os.startsWith("linux") ? "linux" : "unsupported";
+        linux = platform.equals("linux") ? new LinuxSessionProxy(dataDir) : null;
     }
 
     public boolean isSupported() { return !platform.equals("unsupported"); }
-    public synchronized boolean hasRecovery() { return Files.exists(snapshotFile); }
+    public synchronized boolean hasRecovery() { return platform.equals("linux") ? linux.hasRecovery() : Files.exists(snapshotFile); }
 
     /** Saves previous settings durably before the first operating-system change. */
     public synchronized void enable(String host, int port) throws Exception {
@@ -55,6 +57,7 @@ public final class SystemProxy implements AutoCloseable {
         if (host == null || !host.matches("[A-Za-z0-9.:\\-]+") || port < 1 || port > 65535) {
             throw new IllegalArgumentException("Invalid local proxy address.");
         }
+        if (platform.equals("linux")) { linux.enable(host, port); return; }
         // Never replace an outstanding recovery snapshot with our own proxy settings.
         if (hasRecovery()) restore();
         JsonObject snapshot = platform.equals("macos") ? snapshotMac() : snapshotWindows();
@@ -101,6 +104,7 @@ public final class SystemProxy implements AutoCloseable {
 
     /** Also restores a snapshot left by an interrupted previous application run. */
     public synchronized void restore() throws Exception {
+        if (platform.equals("linux")) { linux.restore(); return; }
         if (!hasRecovery()) return;
         JsonObject snapshot;
         try {

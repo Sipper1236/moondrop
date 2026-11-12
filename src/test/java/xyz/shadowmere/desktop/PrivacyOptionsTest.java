@@ -32,11 +32,12 @@ class PrivacyOptionsTest {
     @Test void ordinaryWorkflowRemainsAvailableButWarningAndRouteOptionsNeverScan() {
         assertTrue(AppSettings.defaults().bulkTestingAllowed());assertFalse(AppSettings.defaults().privacy().privateConnect());
         for(PrivacyOptions privacy:List.of(new PrivacyOptions(true,false,false,"",false,false,"",false,false),
-                new PrivacyOptions(false,true,false,"",false,false,"",false,false),
                 new PrivacyOptions(false,false,false,"",false,true,"a".repeat(64),false,false),
                 new PrivacyOptions(false,false,false,"",false,false,"",true,false))) {
-            assertTrue(privacy.singleAttempt());assertFalse(new AppSettings(true,true,true,true,Set.copyOf(AppSettings.PROTOCOLS),false,privacy).bulkTestingAllowed());
+            assertTrue(privacy.singleAttempt());assertFalse(privacy.contactDisclosure());assertFalse(new AppSettings(true,true,true,true,Set.copyOf(AppSettings.PROTOCOLS),false,privacy).bulkTestingAllowed());
         }
+        PrivacyOptions legacyWarning=new PrivacyOptions(false,true,false,"",false,false,"",false,false);
+        assertFalse(legacyWarning.singleAttempt());assertFalse(legacyWarning.contactDisclosure());
     }
     @Test void missingPreferencesPreserveEncryptedCatalogProtectionUntilExplicitOptOut()throws Exception {
         Files.writeString(data.resolve("server-catalog.json"),"{\"version\":2,\"servers\":[]}");

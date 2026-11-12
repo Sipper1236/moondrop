@@ -140,6 +140,9 @@ public final class Main implements AppWindow.Actions {
         window.setVisible(true);
         if(settings.automaticUpdates())checkForUpdates();
         monitor.scheduleWithFixedDelay(() -> {if(settings.automaticUpdates())checkForUpdates();},6,6,TimeUnit.HOURS);
+        // Feeds are live subscriptions, not a bundled/static list. Refresh periodically while
+        // the app is open; when Moondrop is connected, refreshCatalog routes fetches through it.
+        monitor.scheduleWithFixedDelay(() -> {if(!closing.get())refreshCatalog();},3,3,TimeUnit.HOURS);
         monitor.scheduleWithFixedDelay(() -> {
             ProxyEngine current=engine;
             if(connected&&((current!=null&&!current.alive())||(current==null&&!tunnel.isAlive()))&&!closing.get()) {
@@ -248,7 +251,8 @@ public final class Main implements AppWindow.Actions {
     private void applyCatalog(ServerCatalog.Result fresh,String country) {
         cancelSpeedTests();
         nearbyCountry=settings.nearbyFirst()?country:null;
-        List<Server> merged=bootstrap.retain(servers,fresh.servers());
+        List<Server> merged=fresh.warnings().isEmpty()
+                ?bootstrap.replaceWithFresh(servers,fresh.servers()):bootstrap.retain(servers,fresh.servers(),fresh.warnings());
         showServers(merged);
         try {saveCatalog(merged);}catch(IOException unavailable){log("Could not save the server list. Current servers are still usable.");}
         ui(() -> {if(!connected)window.setConnection("Disconnected","Choose Connect to find your best connection.",false);});
@@ -284,13 +288,13 @@ public final class Main implements AppWindow.Actions {
             if(settings.privacy().singleAttempt()) {
                 Server entry=selectedEntry();
                 List<Server> exits=entry==null?eligible:eligible.stream().filter(candidate->!PerformanceCache.serverKey(candidate).equals(PerformanceCache.serverKey(entry))).toList();
-                List<Server> entries=entry==null?bootstrap.preferred(exits):List.of();
-                Server selected=entries.isEmpty()?ConnectionPolicy.selectSingle(exits,performance.snapshot(),nearbyCountry):entries.get(0);
+                List<Server> previouslyWorking=entry==null?bootstrap.preferred(exits):List.of();
+                Server selected=ConnectionPolicy.selectSingle(previouslyWorking.isEmpty()?exits:previouslyWorking,performance.snapshot(),nearbyCountry);
                 connectNow(selected,useSystem,null);
                 return;
             }
-            java.util.LinkedHashSet<Server> savedOrder=new java.util.LinkedHashSet<>(bootstrap.preferred(eligible));
-            savedOrder.addAll(performance.connectionCandidates(eligible,3));
+            java.util.LinkedHashSet<Server> savedOrder=new java.util.LinkedHashSet<>(performance.connectionCandidates(eligible,3));
+            savedOrder.addAll(bootstrap.preferred(eligible));
             List<Server> ranked=List.copyOf(savedOrder);
             for(Server cached:ranked) {
                 checkCancelled();
@@ -469,7 +473,7 @@ public final class Main implements AppWindow.Actions {
 
     @Override public void disconnect() {
         Future<?> running=task; if(running!=null&&!running.isDone()) running.cancel(true);
-        submit("Disconnecting", () -> {cleanup(); ui(() -> window.setConnection("Disconnected",DesktopTunnel.status().blocked()?"Disconnected. Strict blocking remains active; reconnect or Restore direct internet in Settings.":"Your previous application proxy settings are restored.",false));log("Disconnected.");});
+        submit("Disconnecting", () -> {cleanup(); ui(() -> window.setConnection("Disconnected",DesktopTunnel.status().blocked()?"Disconnected. Strict blocking remains active; reconnect or Restore direct internet in Settings.":"Your previous application proxy settings are restored.",false));log("Disconnected.");if(settings.bulkTestingAllowed())startSpeedTests(false);});
     }
 
     private void cleanup() throws Exception {
@@ -494,10 +498,7 @@ public final class Main implements AppWindow.Actions {
     }
 
     private boolean confirmContact(Server server,Server entry) throws Exception {
-        if(!settings.privacy().contactDisclosure()&&!PublicEndpoints.manual(server))return true;
-        AtomicBoolean approved=new AtomicBoolean();
-        SwingUtilities.invokeAndWait(()->approved.set(window.confirmProxyContact(server,entry,settings.privacy().fullDevice(),settings.privacy().strictTunnel())));
-        return approved.get();
+        return true;
     }
 
     @Override public void testSelected(Server server) {

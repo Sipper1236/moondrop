@@ -7,6 +7,8 @@ import java.util.*;
 /** Cached HTTPS median, sample reliability, and an optional measured download rate. */
 public record ServerPerformance(State state, long millis, Instant checkedAt, int successes, int attempts,
                                 long bytesPerSecond, Instant throughputAt) {
+    private static final Duration CACHE_WINDOW = Duration.ofDays(7);
+    private static final Duration RANKING_WINDOW = Duration.ofHours(3);
     public enum State { UNTESTED, TESTING, VERIFIED, FAILED }
     public ServerPerformance {
         Objects.requireNonNull(state); Objects.requireNonNull(checkedAt); Objects.requireNonNull(throughputAt);
@@ -36,15 +38,18 @@ public record ServerPerformance(State state, long millis, Instant checkedAt, int
         return (successful()&&successes>0||state==State.FAILED&&successes==0)&&millis>=0&&!checkedAt.isAfter(Instant.now())
                 &&(bytesPerSecond<0?throughputAt.equals(Instant.EPOCH):!throughputAt.equals(Instant.EPOCH)&&!throughputAt.isAfter(Instant.now()));
     }
-    private static boolean recent(Instant time){Instant now=Instant.now();return !time.isAfter(now)&&time.isAfter(now.minus(Duration.ofDays(7)));}
-    public boolean fresh(){return completed()&&recent(checkedAt);}
+    private static boolean recent(Instant time,Duration window){Instant now=Instant.now();return !time.isAfter(now)&&time.isAfter(now.minus(window));}
+    /** Seven-day fallback cache; ranking freshness is shorter and drives periodic refresh. */
+    public boolean fresh(){return completed()&&recent(checkedAt,CACHE_WINDOW);}
+    public boolean rankingFresh(){return completed()&&recent(checkedAt,RANKING_WINDOW);}
     public boolean hasQuality(){return completed()&&attempts>=3;}
     public double reliability(){return attempts==0?0:(double)successes/attempts;}
-    public boolean throughputFresh(){return completed()&&bytesPerSecond>=0&&recent(throughputAt);}
-    /** Full three-sample results lead, then reliability. Score estimates a 256 KiB transfer plus latency;
+    public boolean throughputFresh(){return completed()&&bytesPerSecond>=0&&recent(throughputAt,RANKING_WINDOW);}
+    /** Recent results lead, then full three-sample quality and reliability. Score estimates a 256 KiB transfer plus latency;
      * unknown throughput adds 1 second, a failed download is last within its quality/reliability tier. */
     public static Comparator<ServerPerformance> bestFirst(){
-        return Comparator.comparing((ServerPerformance value)->!value.hasQuality())
+        return Comparator.comparing((ServerPerformance value)->!value.rankingFresh())
+                .thenComparing(value->!value.hasQuality())
                 .thenComparing(Comparator.comparingDouble(ServerPerformance::reliability).reversed())
                 .thenComparingDouble(ServerPerformance::combinedScore).thenComparingLong(ServerPerformance::millis);
     }

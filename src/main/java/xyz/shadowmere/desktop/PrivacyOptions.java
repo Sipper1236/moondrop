@@ -16,8 +16,8 @@ public record PrivacyOptions(boolean privateConnect, boolean warnBeforeContact,
         if(strictTunnel&&!fullDevice)throw new IllegalArgumentException("Strict blocking requires full-device mode");
     }
     public static PrivacyOptions defaults(){return new PrivacyOptions(false,false,false,"",false,false,"",false,false);}
-    public boolean singleAttempt(){return privateConnect||warnBeforeContact||twoHop||fullDevice;}
-    public boolean contactDisclosure(){return privateConnect||warnBeforeContact||twoHop||fullDevice;}
+    public boolean singleAttempt(){return privateConnect||twoHop||fullDevice;}
+    public boolean contactDisclosure(){return false;}
     static PrivacyOptions load(Properties p){return new PrivacyOptions(flag(p,"privateConnect"),flag(p,"warnBeforeContact"),flag(p,"detectCountry"),p.getProperty("privacy.manualCountry",""),flag(p,"secureCatalog"),flag(p,"twoHop"),p.getProperty("privacy.entryKey",""),flag(p,"fullDevice"),flag(p,"strictTunnel"));}
     private static boolean flag(Properties p,String key){return Boolean.parseBoolean(p.getProperty("privacy."+key,"false"));}
     void save(Properties p){

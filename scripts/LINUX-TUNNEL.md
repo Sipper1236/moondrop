@@ -1,6 +1,6 @@
 # Linux full-device mode
 
-Full-device mode is optional and currently available on Linux x64. Application Proxy Mode remains the simple, unprivileged default. Full-device mode requires PolicyKit (`pkexec`), Python 3, iproute2, nftables, and `/dev/net/tun`.
+Full-device mode is built into Moondrop and currently available on Linux x64. It runs the app-managed, checksum-verified sing-box engine in TUN mode using the server you select; you do not need to maintain a separate `singbox-real.json`. Application Proxy Mode remains the simple, unprivileged default. Full-device mode requires PolicyKit (`pkexec`), Python 3, iproute2, nftables, and `/dev/net/tun`.
 
 On first activation Moondrop asks for administrator authorization to install its narrow broker at `/usr/local/libexec/moondrop-tunnel-helper.py`. The broker independently downloads the official sing-box 1.14.3 Linux x64 archive, checks the pinned SHA-256, and installs the engine under `/usr/local/lib/moondrop`. It does not run a user-supplied engine as root. It accepts bounded JSON with public IP addresses and a strict allowlist of encrypted outbound settings; it never accepts shell commands, file paths, certificate paths or arbitrary sing-box configuration.
 

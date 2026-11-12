@@ -34,12 +34,22 @@ final class BootstrapHistory {
         return servers.stream().filter(s->successes.containsKey(PerformanceCache.serverKey(s))&&!failed.contains(PerformanceCache.serverKey(s)))
             .sorted(Comparator.comparingLong((Server s)->successes.get(PerformanceCache.serverKey(s))).reversed()).toList();
     }
-    synchronized List<Server> retain(List<Server> saved,List<Server> fresh) {
+    synchronized List<Server> retain(List<Server> saved,List<Server> fresh,List<String> warnings) {
         LinkedHashMap<String,Server> merged=new LinkedHashMap<>();
+        Set<String> unavailableSources=new HashSet<>();
+        for(String warning:warnings)for(String source:List.of("Shadowmere","GFP","V2rayCollector","Morpheus","V2RayAggregator","Epodonios"))
+            if(warning.startsWith(source))unavailableSources.add(source);
         for(Server s:saved)if(PublicEndpoints.manual(s))merged.put(PerformanceCache.serverKey(s),s);
         for(Server s:fresh)merged.putIfAbsent(PerformanceCache.serverKey(s),s);
-        // Feed disappearance is not proof that a proven entry stopped working.
-        for(Server s:saved)if(PublicEndpoints.manual(s)||successes.containsKey(PerformanceCache.serverKey(s)))merged.putIfAbsent(PerformanceCache.serverKey(s),s);
+        // Keep cached entries only for a feed that failed this refresh; successful feeds are authoritative.
+        for(Server s:saved)if(unavailableSources.contains(s.sourceName()))merged.putIfAbsent(PerformanceCache.serverKey(s),s);
+        return List.copyOf(merged.values());
+    }
+    /** A complete successful feed sweep is authoritative: discard expired feed entries. */
+    synchronized List<Server> replaceWithFresh(List<Server> saved,List<Server> fresh) {
+        LinkedHashMap<String,Server> merged=new LinkedHashMap<>();
+        for(Server server:fresh)merged.put(PerformanceCache.serverKey(server),server);
+        for(Server server:saved)if(PublicEndpoints.manual(server))merged.putIfAbsent(PerformanceCache.serverKey(server),server);
         return List.copyOf(merged.values());
     }
     synchronized void erase()throws IOException {Files.deleteIfExists(file);successes.clear();failed.clear();}

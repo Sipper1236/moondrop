@@ -57,7 +57,7 @@ public final class AppWindow extends JFrame {
     private final JTextField search = new JTextField();
     private final JComboBox<String> country = new JComboBox<>(new String[]{"All locations"});
     private final Map<Server, ServerPerformance> performance = new HashMap<>();
-    private final JComboBox<String> sort = new JComboBox<>(new String[]{"Sort: recommended", "Sort: country"});
+    private final JComboBox<String> sort = new JComboBox<>(new String[]{"Sort: fastest", "Sort: country"});
     private final JButton retest = new JButton("Retest speeds");
     private final JButton settingsButton = iconButton("settings", "Settings");
     private final JButton update = iconButton("update", "Check for updates");
@@ -134,7 +134,7 @@ public final class AppWindow extends JFrame {
         selectedFeatures.add(selectedProtocol);selectedFeatures.add(selectedStrength);
         selectedProtection.add(selectedFeatures);selectedProtection.add(Box.createVerticalStrut(6));selectedProtection.add(selectedExplanation);
         selectedProtection.setVisible(false); serverDetails.setAlignmentX(Component.LEFT_ALIGNMENT);serverDetails.addActionListener(e -> {selectedExplanation.setVisible(serverDetails.isSelected());serverDetails.setText(serverDetails.isSelected()?"Hide server details":"Show server details");});chosen.add(selectedProtection);chosen.add(serverDetails);chosen.add(Box.createVerticalStrut(14));
-        systemProxy.setOpaque(false); systemProxy.setForeground(TEXT); systemProxy.setAlignmentX(Component.LEFT_ALIGNMENT); proxyControls.add(systemProxy); proxyControls.add(Box.createVerticalStrut(6)); proxyControls.add(label("Local SOCKS5 / HTTP: 127.0.0.1:17890",MUTED,11)); proxyControls.add(Box.createVerticalStrut(5)); proxyControls.add(label("System proxy applies to supported apps.",MUTED,11)); chosen.add(proxyControls); connection.add(chosen,BorderLayout.CENTER);
+        systemProxy.setOpaque(false); systemProxy.setForeground(TEXT); systemProxy.setAlignmentX(Component.LEFT_ALIGNMENT); proxyControls.add(systemProxy); proxyControls.add(Box.createVerticalStrut(6)); proxyControls.add(label("Local SOCKS5 / HTTP: 127.0.0.1:17890",MUTED,11)); proxyControls.add(Box.createVerticalStrut(5)); proxyControls.add(label(isLinux()?"Desktop proxy settings and new terminal shells.":"System proxy applies to supported apps.",MUTED,11)); chosen.add(proxyControls); connection.add(chosen,BorderLayout.CENTER);
         connect.setPreferredSize(new Dimension(200,44)); connect.setBackground(new Color(43,58,67)); connect.setForeground(TEXT); connect.setFont(connect.getFont().deriveFont(Font.BOLD,14)); connect.addActionListener(e -> {if(connected || busy) actions.disconnect(); else if(servers.getSelectedValue()!=null) actions.connect(servers.getSelectedValue(),systemProxy.isSelected());}); JPanel connectionButtons = vertical();
         quickConnect.setBackground(MINT); quickConnect.setForeground(BG); quickConnect.setFont(quickConnect.getFont().deriveFont(Font.BOLD,21)); quickConnect.setAlignmentX(Component.LEFT_ALIGNMENT); quickConnect.setMaximumSize(new Dimension(Integer.MAX_VALUE,84)); quickConnect.setMinimumSize(new Dimension(250,84)); quickConnect.setPreferredSize(new Dimension(350,84)); quickConnect.putClientProperty("FlatLaf.style","arc: 20");quickConnect.setToolTipText("Automatically test servers and connect to the fastest verified result");quickConnect.addActionListener(e -> {if(connected||busy)actions.disconnect();else actions.quickConnect(systemProxy.isSelected());});
         connectionButtons.add(quickConnect); connectionButtons.add(Box.createVerticalStrut(9)); connectionButtons.add(automaticHint); connectionButtons.add(Box.createVerticalStrut(8)); connectionButtons.add(discovery); connectionButtons.add(Box.createVerticalStrut(10)); connect.setAlignmentX(Component.LEFT_ALIGNMENT); connect.setMaximumSize(new Dimension(Integer.MAX_VALUE,40)); connectionButtons.add(connect); connection.add(connectionButtons,BorderLayout.SOUTH);
@@ -181,7 +181,7 @@ public final class AppWindow extends JFrame {
             Window dialog=SwingUtilities.getWindowAncestor(content);if(dialog!=null){dialog.pack();dialog.setLocationRelativeTo(this);}
         });
         content.add(Box.createVerticalStrut(10));
-        content.add(label(systemProxySupported?"Proxy preference applies to your next connection.":"Linux: configure apps to use the local proxy at 127.0.0.1:17890.",MUTED,11));
+        content.add(label(systemProxySupported?(isLinux()?"Sets supported desktop proxy settings and proxy environment for new terminals.":"Proxy preference applies to your next connection."):"Use the local proxy at 127.0.0.1:17890.",MUTED,11));
         int choice=JOptionPane.showOptionDialog(this,content,"Settings",JOptionPane.OK_CANCEL_OPTION,
                 JOptionPane.PLAIN_MESSAGE,null,new String[]{"Save settings","Cancel"},"Save settings");
         if(choice==0&&actions.saveSettings(new AppSettings(updates.isSelected(),testing.isSelected(),nearby.isSelected(),proxy.isSelected(),protocols.entrySet().stream().filter(entry -> entry.getValue().isSelected()).map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet()),advanced.isSelected(),actions.settings().privacy()))) {
@@ -199,9 +199,8 @@ public final class AppWindow extends JFrame {
         JCheckBox scans=new JCheckBox("Test servers automatically",current.automaticTesting());addOption(content,scans);
         content.add(note("Reuses saved tests before scanning. Fresh direct tests expose your connecting IP to each contacted operator. The options below can pause automatic scans."));
         JCheckBox privacy=new JCheckBox("Try one server at a time (Privacy mode)",old.privateConnect());addOption(content,privacy);
-        content.add(note("Reuses cached rankings, pauses background scans, and asks before contacting the selected server. If it fails, choose Connect again yourself."));
-        JCheckBox warn=new JCheckBox("Ask before contacting a proxy",old.warnBeforeContact());addOption(content,warn);
-        content.add(note("Proxy operators can see the IP connecting to them. Automatic testing in the usual mode contacts multiple operators."));
+        content.add(note("Reuses cached rankings and pauses background scans. If the selected server fails, choose Connect again to try another."));
+        content.add(note("Moondrop connects without an extra confirmation dialog. Proxy operators can see the IP connecting to them."));
         JCheckBox detect=new JCheckBox("Detect my approximate country (IPWHOIS)",old.detectCountry());addOption(content,detect);
         content.add(note("Optional direct HTTPS request to ipwho.is. IPWHOIS receives your public IP; only country and lookup time are saved for 24 hours."));
         java.util.ArrayList<CountryChoice> countries=new java.util.ArrayList<>();countries.add(new CountryChoice("","No manual country"));
@@ -214,7 +213,7 @@ public final class AppWindow extends JFrame {
         content.add(note("Encrypts reusable profiles with a key held by Windows DPAPI, macOS Keychain, or Linux Secret Service. A locked or missing store causes a clear error; it never silently saves plaintext."));
         content.add(Box.createVerticalStrut(12));content.add(label("ROUTING",MUTED,11));content.add(Box.createVerticalStrut(8));
         JCheckBox full=new JCheckBox("Full-device tunnel ("+DesktopTunnel.platform()+")",old.fullDevice());full.setEnabled(DesktopTunnel.supported());addOption(content,full);
-        content.add(note(DesktopTunnel.supported()?"Optional administrator setup manages device routing and encrypted DNS. Application Proxy Mode remains the default."+(DesktopTunnel.platform().equals("Linux")?"":" Experimental: native traffic, leak and crash validation is still required on this platform."):DesktopTunnel.requirements()));
+        content.add(note(DesktopTunnel.supported()?(DesktopTunnel.platform().equals("Linux")?"Moondrop runs its own verified sing-box TUN for device-wide routing; no separate singbox-real.json is needed. First use installs a restricted helper and asks for administrator authorization.":"Optional administrator setup manages device routing and encrypted DNS. Application Proxy Mode remains the default. Experimental: native traffic, leak and crash validation is still required on this platform."):DesktopTunnel.requirements()));
         JCheckBox strict=new JCheckBox("Keep internet blocked when the tunnel disconnects",old.strictTunnel());strict.setEnabled(full.isSelected());full.addActionListener(e->strict.setEnabled(full.isSelected()));addOption(content,strict);
         content.add(note("Strict blocking survives a stopped tunnel or app crash. Reconnect or explicitly choose Restore direct internet below. It needs administrator permission."));
         JCheckBox chain=new JCheckBox("Two-hop routing",old.twoHop());addOption(content,chain);
@@ -225,9 +224,9 @@ public final class AppWindow extends JFrame {
         content.add(note("Select an entry in the main list before opening Settings, then choose it here. Connect chooses one different exit. Entry sees your IP; exit sees destinations. Independent ownership is not verified, and colluding operators can correlate traffic. Both hops must work; there is no direct fallback. Full-device two-hop currently requires a Shadowsocks entry and TCP exit."));
         JPanel presets=new JPanel(new FlowLayout(FlowLayout.LEFT,0,4));presets.setOpaque(false);presets.setAlignmentX(Component.LEFT_ALIGNMENT);
         JButton simplePreset=new JButton("Simple connection preset");
-        simplePreset.addActionListener(e->{privacy.setSelected(false);warn.setSelected(false);detect.setSelected(false);scans.setSelected(true);chain.setSelected(false);full.setSelected(false);strict.setSelected(false);strict.setEnabled(false);});
+        simplePreset.addActionListener(e->{privacy.setSelected(false);detect.setSelected(false);scans.setSelected(true);chain.setSelected(false);full.setSelected(false);strict.setSelected(false);strict.setEnabled(false);});
         JButton privatePreset=new JButton("One-server privacy preset");
-        privatePreset.addActionListener(e->{privacy.setSelected(true);warn.setSelected(true);detect.setSelected(false);scans.setSelected(false);});
+        privatePreset.addActionListener(e->{privacy.setSelected(true);detect.setSelected(false);scans.setSelected(false);});
         presets.add(simplePreset);presets.add(privatePreset);content.add(presets);
         content.add(note("Presets take effect when you save. They keep your credential-protection choice. Existing strict blocking is released only with Restore direct internet."));
         content.add(label("ALWAYS ENFORCED",MUTED,11));
@@ -242,26 +241,19 @@ public final class AppWindow extends JFrame {
         if(choice==0){
             if(chain.isSelected()&&entryKey[0].isEmpty()){showError("Choose an entry server","Select a server in the main list and use it as the entry before enabling two-hop routing.");return;}
             CountryChoice country=(CountryChoice)manual.getSelectedItem();
-            PrivacyOptions next=new PrivacyOptions(privacy.isSelected(),warn.isSelected(),detect.isSelected(),country==null?"":country.code(),secure.isSelected(),chain.isSelected(),entryKey[0],full.isSelected(),full.isSelected()&&strict.isSelected());
+            PrivacyOptions next=new PrivacyOptions(privacy.isSelected(),false,detect.isSelected(),country==null?"":country.code(),secure.isSelected(),chain.isSelected(),entryKey[0],full.isSelected(),full.isSelected()&&strict.isSelected());
             AppSettings latest=actions.settings();
             if(actions.saveSettings(new AppSettings(latest.automaticUpdates(),scans.isSelected(),latest.nearbyFirst(),latest.systemProxy(),latest.enabledProtocols(),latest.advancedMode(),next)))applyMode();
         }
     }
     private static JLabel note(String text){JLabel label=label("<html><div style='width:350px'>"+escape(text)+"</div></html>",MUTED,11);label.setAlignmentX(Component.LEFT_ALIGNMENT);label.setBorder(new EmptyBorder(2,0,10,0));return label;}
-    public boolean confirmProxyContact(Server server,Server entry,boolean fullDevice,boolean strict){
-        String routing=entry==null?"This proxy operator can see your public IP and destination metadata.":"Your entry operator sees your IP. Your exit receives traffic through the entry. Independent ownership is not verified; collusion can correlate traffic.";
-        String local=PublicEndpoints.manual(server)?"\nThis is a manual profile. Private/LAN endpoints may contact services on your network.":"";
-        String device=fullDevice?"\nFull-device routing requires administrator permission."+(strict?" Strict mode will keep internet blocked if connection setup or the tunnel fails. Use Restore direct internet to release it.":""):"\nApplication Proxy Mode covers applications that use its proxy settings.";
-        return JOptionPane.showConfirmDialog(this,"Connect to "+server.countryName()+" · "+server.protocolName()+"?\n"+routing+local+device,"Proxy contact",JOptionPane.OK_CANCEL_OPTION,JOptionPane.INFORMATION_MESSAGE)==JOptionPane.OK_OPTION;
-    }
-
     private static void addOption(JPanel content,JCheckBox option) {
         option.setOpaque(false);option.setAlignmentX(Component.LEFT_ALIGNMENT);content.add(option);content.add(Box.createVerticalStrut(6));
     }
     private void applyMode() {
         boolean advanced=actions.settings().advancedMode();
         if(!connected)coverage.setText(actions.settings().privacy().fullDevice()?"Full-device tunnel · "+DesktopTunnel.platform()+" routing and DNS":"Application Proxy Mode · compatible apps only");
-        enginePanel.setVisible(advanced);proxyControls.setVisible(advanced||!systemProxySupported);
+        enginePanel.setVisible(advanced);proxyControls.setVisible(advanced||!systemProxySupported||isLinux());
         serverDetails.setSelected(advanced);serverDetails.setText(advanced?"Hide server details":"Show server details");
         selectedExplanation.setVisible(advanced);speedProgress.setVisible(advanced);
         servers.repaint();revalidate();repaint();
@@ -360,7 +352,7 @@ public final class AppWindow extends JFrame {
             selectedProtocol.setToolTipText(server.protectionDetail());selectedStrength.setToolTipText(server.protectionDetail());
         }
     }
-    public void setSystemProxySupported(boolean supported){systemProxySupported=supported;systemProxy.setSelected(supported&&actions.settings().systemProxy());systemProxy.setToolTipText(supported?null:"System proxy settings are available on macOS and Windows. Use the local SOCKS5 endpoint on this platform.");applyMode();updateControls();}
+    public void setSystemProxySupported(boolean supported){systemProxySupported=supported;systemProxy.setText(isLinux()?"Use desktop apps and terminal through proxy":"Use as system proxy");systemProxy.setSelected(supported&&actions.settings().systemProxy());systemProxy.setToolTipText(supported?(isLinux()?"Updates supported desktop proxy settings and proxy variables for new shells. Apps already open may need a restart.":null):"Use the local SOCKS5 endpoint on this platform.");applyMode();updateControls();}
     public void setBusy(boolean value){busy=value; updateControls();}
     public void setCoreReady(boolean value){coreReady=value; install.setText(value?"Engine ready":"Install engine"); updateControls();}
     public void setConnection(String state,String description,boolean value){boolean wasConnected=connected;if(wasConnected&&!value)systemProxy.setSelected(systemProxySupported&&actions.settings().systemProxy());connected=value;if(wasConnected&&!value)showSelection(servers.getSelectedValue());status.setText(state);status.setForeground(value?MINT:TEXT);detail.setText("<html><div style='width:270px'>"+escape(description)+"</div></html>");detail.setToolTipText(description);updateControls();}
@@ -431,6 +423,7 @@ public final class AppWindow extends JFrame {
         update.setActionCommand(name);
     }
     private static String escape(String value){return value==null?"":value.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace("\"","&quot;");}
+    private static boolean isLinux(){return System.getProperty("os.name","").toLowerCase(Locale.ROOT).contains("linux");}
     private static JPanel panel(LayoutManager layout){JPanel p=new JPanel(layout);p.setBackground(PANEL);p.setBorder(new EmptyBorder(22,22,22,22));p.putClientProperty("FlatLaf.style","arc: 20");return p;}
     private static JPanel vertical(){JPanel p=new JPanel();p.setLayout(new BoxLayout(p,BoxLayout.Y_AXIS));p.setOpaque(false);return p;}
     private static JLabel label(String text,Color color,int size){JLabel l=new JLabel(text);l.setForeground(color);l.setFont(new Font(Font.SANS_SERIF,size>=19?Font.BOLD:Font.PLAIN,size));l.setAlignmentX(Component.LEFT_ALIGNMENT);return l;}

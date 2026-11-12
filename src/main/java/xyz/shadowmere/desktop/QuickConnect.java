@@ -84,24 +84,27 @@ public final class QuickConnect {
                     }
                     progress.accept("HTTPS checks " + (i+1) + "/" + bindings.size() + " · " + working.size() + " working");
                 }
-                List<Verified> downloadTargets=working.stream().sorted(Comparator
-                        .comparingDouble((Verified value)->value.quality().reliability()).reversed()
-                        .thenComparingLong(value->value.quality().millis())).limit(5).toList();
-                int downloads=0;
-                for(Verified target:downloadTargets) {
+                if(working.isEmpty())throw new IOException("The tested servers failed the HTTPS check. Refresh or try a server manually.");
+                List<Verified> speedShortlist=working.stream()
+                        .sorted(Comparator.comparing(Verified::quality,ServerPerformance.bestFirst())).limit(5).toList();
+                Map<Server,Integer> ports=new HashMap<>();
+                bindings.forEach((port,server)->ports.put(server,port));
+                Map<Server,ServerPerformance> scored=new HashMap<>();
+                int measured=0;
+                for(Verified candidate:speedShortlist) {
                     if(Thread.currentThread().isInterrupted())throw new InterruptedException();
-                    if(target.quality().throughputFresh())continue;
-                    progress.accept("Measuring download speed "+(++downloads)+" of up to 5…");
-                    int port=bindings.entrySet().stream().filter(entry->entry.getValue().equals(target.server())).findFirst().orElseThrow().getKey();
-                    long rate;
-                    try {rate=ConnectionQuality.download(port);}
+                    progress.accept("Comparing download speed "+(++measured)+" of "+speedShortlist.size()+" fastest HTTPS results…");
+                    long bytesPerSecond;
+                    try {bytesPerSecond=ConnectionQuality.download(ports.get(candidate.server()));}
                     catch(InterruptedException cancellation){throw cancellation;}
-                    catch(IOException unavailable){rate=0;}
-                    Verified updated=new Verified(target.server(),target.quality().withThroughput(rate));
-                    working.set(working.indexOf(target),updated);
-                    measurements.accept(new ServerSpeedTester.Update(updated.server(),updated.quality()));
+                    catch(IOException unavailable){bytesPerSecond=0;}
+                    ServerPerformance quality=candidate.quality().withThroughput(bytesPerSecond);
+                    scored.put(candidate.server(),quality);
+                    measurements.accept(new ServerSpeedTester.Update(candidate.server(),quality));
                 }
-                Verified best = working.stream().min(Comparator.comparing(Verified::quality,ServerPerformance.bestFirst()))
+                Verified best = working.stream().map(candidate->new Verified(candidate.server(),
+                                scored.getOrDefault(candidate.server(),candidate.quality())))
+                        .min(Comparator.comparing(Verified::quality,ServerPerformance.bestFirst()))
                         .orElseThrow(() -> new IOException("The tested servers failed the HTTPS check. Refresh or try a server manually."));
                 return new Result(best.server(), best.quality().millis(), bindings.size());
             }
