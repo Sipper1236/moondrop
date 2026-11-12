@@ -29,7 +29,7 @@ class AppWindowUsabilityTest {
             assertEquals(2,actions.disconnects);
             assertFalse(field(window,"connect",JButton.class).isVisible(),"Do not show two Disconnect buttons");
             JComboBox<?> sort=field(window,"sort",JComboBox.class);
-            assertEquals("Sort: recommended",sort.getItemAt(0));
+            assertEquals("Sort: fastest",sort.getItemAt(0));
         });
     }
 
