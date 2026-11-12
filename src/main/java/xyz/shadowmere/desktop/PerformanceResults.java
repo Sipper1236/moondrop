@@ -67,10 +67,12 @@ public final class PerformanceResults {
     public synchronized List<Server> bandwidthCandidates(List<Server> servers,int limit){
         if(limit<0)throw new IllegalArgumentException("Negative candidate limit");
         // Use latency results from this scan, then measure the same best candidates sequentially.
+        Comparator<ServerPerformance> shortlist=Comparator.comparingDouble(ServerPerformance::reliability).reversed()
+                .thenComparingLong(ServerPerformance::millis);
         return servers.stream().filter(server -> {
             ServerPerformance result=completed.get(PerformanceCache.serverKey(server));
             return result!=null&&result.successful()&&result.hasQuality()&&result.rankingFresh();
-        }).sorted(Comparator.comparing(server -> completed.get(PerformanceCache.serverKey(server)),ServerPerformance.bestFirst()))
+        }).sorted(Comparator.comparing(server -> completed.get(PerformanceCache.serverKey(server)),shortlist))
                 .limit(limit).filter(server -> !completed.get(PerformanceCache.serverKey(server)).throughputFresh()).toList();
     }
     public synchronized List<Server> quickCandidates(List<Server> servers) {

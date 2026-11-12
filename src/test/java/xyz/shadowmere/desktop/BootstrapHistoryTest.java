@@ -19,7 +19,7 @@ class BootstrapHistoryTest {
         assertFalse(Files.readString(data.resolve("bootstrap-history.json")).contains("secret-fixture"));
     }
     @Test void disappearingFeedRetainsProvenEntryButNotArbitraryOldServers()throws Exception {
-        Server entry=server("entry"),old=server("old"),fresh=server("fresh");
+        Server entry=server("entry"),old=server("gfp:old"),fresh=server("gfp:fresh");
         BootstrapHistory history=new BootstrapHistory(data);history.succeeded(entry);
         assertEquals(List.of(fresh,entry),history.retain(List.of(old,entry),List.of(fresh),List.of("Shadowmere is unavailable.")));
         history.failed(entry);

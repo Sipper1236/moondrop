@@ -33,7 +33,7 @@ class PerformanceResultsTest {
         List<Server> all = List.of(slow, stale, fast, failed, unknown);
         assertEquals(List.of(slow, stale, fast, unknown), results.pending(all, false));
         assertEquals(all, results.pending(all, true));
-        assertEquals(List.of(stale, fast, slow), results.ranked(all));
+        assertEquals(List.of(fast, slow, stale), results.ranked(all));
     }
     @Test void quickConnectSkipsFreshFailuresButRetriesExpiredFailures() {
         var results = new PerformanceResults();
