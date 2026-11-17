@@ -1,10 +1,10 @@
 # Publisher signatures and release checks
 
-Desktop updates now require an independent Ed25519 signature, not just the checksum published beside a JAR. The immutable trusted X.509 public key is `ReleaseSignatures.PUBLIC_KEY`. There is no download-host key discovery or checksum-only fallback. The detached signature covers the **exact bytes** of `release-manifest.txt`:
+Desktop updates require an independent Ed25519 signature, not just the checksum published beside a JAR. The immutable trusted X.509 public key is `ReleaseSignatures.PUBLIC_KEY`. There is no download-host key discovery or checksum-only fallback. The v0.7.4 release rotates the signing key after the v0.7.3 private key became unavailable. Since v0.7.3 embeds only the old public key, existing installs must manually install v0.7.4 once; v0.7.4 and later can verify releases signed by the replacement key. The detached signature covers the **exact bytes** of `release-manifest.txt`:
 
 ```
 moondrop-release-v1
-version 0.7.3
+version 0.7.4
 <64 lowercase SHA256 hex>  moondrop.jar
 <64 lowercase SHA256 hex>  Moondrop.zip
 ```
@@ -18,9 +18,9 @@ python3 scripts/sign-release.py --version VERSION \
   --key /private/path/releases-ed25519.pem --directory RELEASE_DIR
 ```
 
-The signer regenerates `SHA256SUMS` for older clients, but those checksums are not publisher authentication. Upload every output, including both manifest files. Keep the private key offline, backed up, and outside the repository. It is deliberately not available to ordinary CI builds. Changing the embedded key requires a trusted application update; protect and retain the original key.
+The signer regenerates `SHA256SUMS` for older clients, but those checksums are not publisher authentication. Upload every output, including both manifest files. Keep the private key offline, backed up, and outside the repository. It is deliberately not available to ordinary CI builds. The current local release key is stored at `~/.config/moondrop/release-ed25519.pem` with owner-only permissions; keep secure offline backups. Never commit or upload the private key. Changing the embedded key requires a trusted application update; protect and retain the current key.
 
-New clients verify signatures before staging, before reusing downloads, and again inside the standalone installer before replacing an installation. The signed sidecars travel with the staged JAR. Older clients do not understand publisher signatures and retain their existing checksum-only trust until this release is installed; a direct installation verified against an independently obtained public key is the safest migration.
+New clients verify signatures before staging, before reusing downloads, and again inside the standalone installer before replacing an installation. The signed sidecars travel with the staged JAR. v0.7.3 and earlier cannot accept the rotated key's signature; install v0.7.4 manually from the official GitHub release and verify its build attestation before proceeding. No checksum-only fallback is enabled.
 
 ## Build provenance and dependency inventory
 

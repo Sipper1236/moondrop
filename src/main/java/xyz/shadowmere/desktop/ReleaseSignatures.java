@@ -10,7 +10,8 @@ import java.util.*;
 /** Independent publisher authentication. Never trusts keys supplied by a release. */
 public final class ReleaseSignatures {
     public static final String MANIFEST = "release-manifest.txt", SIGNATURE = "release-manifest.sig";
-    public static final String PUBLIC_KEY = "MCowBQYDK2VwAyEAsA36dF1KiRLz+mg66+LEivITZ/lZ8X3HXPHqJ9+ShCg=";
+    /** Ed25519 trust anchor rotated for the v0.7.4 release. */
+    public static final String PUBLIC_KEY = "MCowBQYDK2VwAyEACV/MDltjDukR5W67+vIAXVoYLEV4/gjIiK0bA9mYeBs=";
     private ReleaseSignatures() { }
     static PublicKey trustedKey() {
         try { return KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(PUBLIC_KEY))); }

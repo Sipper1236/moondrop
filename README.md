@@ -224,6 +224,10 @@ Windows/macOS desktop full-device routing is not implemented in this first Linux
 
 Moondrop checks this project's GitHub releases in the background at launch and every six hours. **Check for updates** retries manually. An unavailable update service does not block browsing or connections. Updates follow published preview releases as well as regular releases.
 
+#### Publisher signing-key rotation (v0.7.4)
+
+The publisher signing key used for v0.7.3 is no longer available, so v0.7.4 starts a new Ed25519 signing key. Because v0.7.3 has the old public key embedded, it cannot verify updates signed by the new key. **Users on v0.7.3 must install v0.7.4 once manually** from the official release page above; automatic signed updates work again after that installation. This is a one-time trust transition. The v0.7.4 source embeds the replacement public key, and release files include a signed manifest. Verify downloadable build artifacts with GitHub's published attestations (`gh attestation verify ARTIFACT --repo Sipper1236/moondrop`).
+
 **Windows and macOS installer editions:** when **Download update** appears, click it to open the official release page. Download the installer for your platform and chip, disconnect and close Moondrop, then install the new version. On macOS, replace the existing app in the folder where you installed it. The full installer updates the app and its bundled Java together. Saved settings and connection results remain in the data folder below.
 
 **Portable ZIP/JAR edition:** a newer JAR downloads automatically and is authenticated against an Ed25519-signed release manifest, its SHA-256 digest, and application version. The trusted publisher key is embedded in the app; a replacement JAR and checksum alone are rejected. A verified staged download is reused across launches. When **Restart to update** appears, click it when convenient. Moondrop restores proxy settings, closes its engines, waits for the app to exit, replaces the JAR, and restarts using your separately installed Java. It keeps `moondrop.jar.previous` beside the JAR as a backup. This updater does not update your separate Java installation.

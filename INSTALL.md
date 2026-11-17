@@ -21,6 +21,8 @@ This release is unsigned and is not notarized. If macOS blocks it, open **System
 
 ## Portable ZIP or JAR
 
+**Signing-key rotation:** Moondrop v0.7.4 uses a new publisher signing key. If you are upgrading from v0.7.3, install v0.7.4 manually from the official release page. The old version cannot verify a release signed by the replacement key; signed automatic updates work after this one-time transition. Verify release artifacts with `gh attestation verify ARTIFACT --repo Sipper1236/moondrop` where GitHub CLI is available.
+
 The portable download runs on Windows (x64/ARM64), macOS (Intel/Apple Silicon), and Linux x64 with **Java 17 or newer**. Java 21 LTS is recommended. The **portable ZIP and standalone JAR do not bundle Java**. A desktop Java runtime (JRE) is enough; a JDK works too. You do not need Maven or development tools to run them. The following Java setup and launcher steps apply to these portable downloads.
 
 ### 1. Install Java
